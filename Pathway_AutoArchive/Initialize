@@ -1,0 +1,381 @@
+Sub Initialize
+
+%REM
+
+	Prompt the user for the number of days in the past to limit archiving.
+	For example, the default value of 180 means that all eligible documents older than
+		6 months will be archived.
+
+	Prompt the user for Status doc archive year.
+	For example, if 2010 was enter as the year, Status documents from 2010 and before
+		will be archived.
+
+	Prompt the user for a commit decision.  if replied in the negative only a report
+		of the documents that would have been archived will be produced.  No archive
+		action will actually take place.
+
+	If a commit is requested then all eligible documents will be copied to the archive.
+		The original copy of the doc will be flagged with a new PWarchived field.  This will
+		cause it to display in the 'Pathway Archived' view.  From there they can be deleted
+		once the archive process is verified to be correct.  (There's no reason to think
+		the archive will not do what it says, this is just a safety check)
+
+%END REM
+
+	Dim session As New NotesSession
+	Dim ws As New NotesUIWorkspace
+	Dim db As NotesDatabase
+	Dim dbArch As NotesDatabase
+	Dim cd As NotesDocumentCollection
+	Dim cdS As NotesDocumentCollection
+	Dim cdF As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim docArch As NotesDocument
+	Dim docHold As NotesDocument
+	Dim docMail As NotesDocument
+	Dim docDel As NotesDocument
+	Dim aDocRemove() As NotesDocument
+	Dim dt As NotesDateTime
+	Dim dtS As NotesDateTime
+	Dim logSend As NotesLog
+	Dim aDocHold() As NotesDocument
+	Dim fromName As NotesName
+
+	Dim fl As String
+	Dim search As String
+	Dim searchS As String
+	Dim searchD As String
+	Dim yearCheck As String
+	Dim logText As String
+	Dim cutOff As String
+	Dim folder As String
+	Dim dispDate1 As String
+	Dim dispDate2 As String
+	Dim xR As Integer
+	Dim x1 As Integer
+	Dim x2 As Integer
+	Dim vRefs As Variant
+	Dim pointer As Single
+	Dim bRefs As Boolean
+	Dim bArchiveMemo As Boolean
+	Dim bArchiveStatus As Boolean
+	Dim bCommit As Boolean
+
+	Dim reply As Variant
+	Dim saved As Long
+	Dim statusYear As Integer
+	Dim displayYear As Integer
+
+	Dim dtNow As New NotesDateTime(Today)
+
+	statusYear = Year(dtNow.DateOnly)
+	displayYear = statusYear - 1
+
+	cutoff = Inputbox$("Archive email documents more than this number of days in the past:", "PATHway Archive", "180")
+	If (cutoff = "") Then
+		Messagebox "You must OK a value", 48, "Batch Archival"
+		Exit Sub
+	End If
+
+	statusYear = Inputbox$("Archive status documents for this year and before:", "PATHway Archive", Cstr(displayYear))
+	search = {(Form = "Memo" | Form = "Reply") & (@Adjust(@Created; 0; 0; } & cutoff & {; 0; 0; 0) < @Now)}
+	'searchS = {Form = "PWayData" & @IsAvailable(PwayNeeded) & @Year(PWayNeeded) <= } & statusYear
+	searchS = {Form = "PWayData" & @IsAvailable(PwayClosedDate) & @Year(PWayClosedDate) <= } & statusYear
+	On Error Goto Sub_Error
+
+	Stop
+
+	If (ws.Prompt(PROMPT_YESNO, "PATHway Archive", "Do you want to commit the archive operations?")) Then
+		bCommit = True
+	End If
+
+	' open the archive database if COMMIT is selected
+	If (bCommit) Then Set dbArch = New NotesDatabase(ProdServer, ArchivePath & ArchiveFile)
+
+	' open the log
+	Set logSend = New NotesLog("PATHway AutoArchiver")
+	Call logSend.OpenMailLog(session.UserName, "PATHway Archive Report")
+
+	' inspect all documents in the db
+	Set db = session.CurrentDatabase
+	db.FolderReferencesEnabled = True
+	Set cd = db.Search(search, Nothing, 0)
+	Set cdS = db.Search(searchS, Nothing, 0)
+	Set doc = cd.GetFirstDocument
+
+	' preallocate array of documents to be archived
+	Redim aDocHold(cd.Count)
+	Redim Preserve aDocRemove(cd.Count)
+
+	xR = -1
+	x1 = 0
+	x2 = 0
+
+	Call logSend.LogAction(cd.Count & " documents to be archived to the local server which are more than " & cutoff & " days old:")
+	If Not (bCommit) Then
+		Call logSend.LogAction("* Note: No documents will be archived or deleted.")
+	Else
+		Call logSend.LogAction("==================")
+		Call logSend.LogAction("Check the Archived folder for the documents that were moved.  Once you are confident that they exist in the Archive database they can be deleted from the Archive folder to complete the cleanup operation.")
+		Call logSend.LogAction("==================")
+	End If
+
+	Print "Processing " & cd.Count " mail docs"
+
+	Do Until doc Is Nothing
+		' now archive
+		xR = xR + 1
+		x2 = x2 + 1
+
+		Set fromName = New NotesName(doc.GetItemValue("From")(0))
+
+		' copy selected document to archive db
+		If (bCommit) Then
+			Set docArch = doc.CopyToDatabase(dbArch)
+		End If
+
+		logText = x2 & ".  '" & Left$(doc.Subject(0), 40) & "',  Memo created " & Format$(doc.Created, "mm/dd/yyyy hh:nn:ss AM/PM") & " from " & fromName.Common
+
+		' oddly. some documents don't have the FolderReferences property, and there doesn't seem to
+		' be a way to verify the existence of a property.  so set up a special error handler for this section
+		On Error Goto Sub_ErrorFolders
+
+		' try to add new document to all folders if it was email
+		bRefs = False
+
+		vRefs = doc.FolderReferences
+		If (Isarray(vRefs)) Then
+			Forall fld In vRefs
+				If (Len(fld) > 0) Then
+					If (bCommit) Then
+						folder = fld
+						Call docArch.PutInFolder(fld, True)
+					End If
+					Call logSend.LogAction(logText & " => in folder " & fld)
+					bRefs = True
+				End If
+			End Forall
+		End If
+
+UseInbox:
+		' if no valid folder was found, just put it in the Inbox
+		folder = "Inbox"
+		If (Not bRefs) Then
+			If (bCommit) Then
+				Call docArch.PutInFolder("($Inbox)")
+			End If
+			Call logSend.LogAction(logText & " => in the Inbox")
+		End If
+
+NoFolders:
+		On Error Goto Sub_Error
+
+		' place doc on the commit queues
+		If (bCommit) Then
+			If (xR > Ubound(aDocHold)) Then
+				Redim Preserve aDocHold(xR + 10)
+				Redim Preserve aDocRemove(xR + 10)
+			End If
+
+			' save copy of the archive copy and of the local copy.  this way we can defer committing any changes until all are processed successfully.
+			Set aDochold(xR) = docArch
+			Set aDocRemove(xR) = doc
+		End If
+		saved = saved + doc.Size
+Archived_Doc:
+		If (bCommit) Then
+			pointer = x2 / 100
+		Else
+			pointer = x2 / 1000
+		End If
+		If (Fix(pointer) > 0 And Fraction(pointer) = 0) Then
+			Print "Processing doc " & x2 & " out of " & cd.Count & " email docs"
+			Sleep 2
+		End If
+
+		Set doc = cd.GetNextDocument(doc)
+	Loop
+
+	' =========================
+	' process collection of status docs
+	Print "Processing " & cdS.Count " status docs"
+	x1 = 0
+	x2 = 0
+	Set doc = cdS.GetFirstDocument
+	Do Until doc Is Nothing
+		x1 = x1 + 1
+
+		' only archive Status documents from selected past year
+		Set dt = doc.GetFirstItem("PWayNeeded").DateTimeValue
+		yearCheck = Right$(dt.DateOnly, 4)
+		If Not (Isnumeric(yearCheck)) Then
+			yearCheck = "0000"
+		End If
+		If (yearCheck <= statusYear) Then
+			xR = xR + 1
+			x2 = x2 + 1
+
+			' create new doc copy in archive db
+			If (bCommit) Then
+				Set docArch = doc.CopyToDatabase(dbArch)
+			End If
+
+			dispDate1 = Format$(doc.Created, "mm/dd/yyyy hh:nn:ss AM/PM")
+			dispDate2 = Format$(doc.GetFirstItem("PWayNeeded").Text, "mm/dd/yyyy hh:nn:ss AM/PM")
+
+			Call logSend.LogAction("  " & x2 & ".  '" & doc.PWayId(0) & "' Created " & dispdate1 & ", Engagement date " & dispDate2)
+
+			' place doc on the commit queues
+			If (bCommit) Then
+				If (xR > Ubound(aDocHold)) Then
+					Redim Preserve aDocHold(xR + 10)
+					Redim Preserve aDocRemove(xR + 10)
+				End If
+
+				' save copy of the archive copy and of the local copy.  this way we can defer committing any changes until all are processed successfully.
+				Set aDochold(xR) = docArch
+				Set aDocRemove(xR) = doc
+			End If
+		Else
+			If (bCommit) Then
+				Set dtS = New NotesDateTime(doc.Created)
+				searchD = {Form = "} & doc.Form(0) & {" & @Text(@Created; "D0T0S2") = "} & dtS.DateOnly & " " & dtS.TimeOnly & {"}
+				Set cdF = dbArch.Search(searchD, Nothing, 1)
+				If (cdF.Count > 0) Then
+					Call logSend.LogAction("    copy found in archive")
+				End If
+			End If
+			Call logSend.LogAction("  " & x2 & ".  '" & doc.PWayId(0) & "' Engagement year more recent, will pick this up in future archive.  Request year = " & yearCheck & " and test year = " & statusYear)
+
+		End If
+		saved = saved + doc.Size
+
+		' show progress
+		If (bCommit) Then
+			pointer = x2 / 10
+		Else
+			pointer = x2 / 100
+		End If
+		If (Fix(pointer) > 0 And Fraction(pointer) = 0) Then
+			Print "Processing doc " & x1 & " out of " & cdS.Count & " status docs, " & x2 & " archived"
+			Sleep 2
+		End If
+
+		' get next doc
+		Set doc = cdS.GetNextDocument(doc)
+	Loop
+
+	' Prepare to commit the documents to the archive database
+	If (bCommit) Then
+		' shrink the commit queues to remove allocated entries never used
+		For x2 = Ubound(aDocHold) To 0 Step -1
+			Set doc = aDocHold(x2)
+			If Not (doc Is Nothing) Then
+				Exit For
+			End If
+		Next
+		Redim Preserve aDocHold(x2)
+		Redim Preserve aDocRemove(x2)
+
+		' commit the documents created in the archive, currently stored in the aDocHold array
+		Print "Saving archived documents in PATHway Archive"
+		Call logSend.LogAction("==================")
+		Call logSend.LogAction(Chr(13) & "Begin Commit phase:")
+		Call logSend.LogAction("==================")
+		For x2 = 0 To Ubound(aDocHold)
+			Set doc = aDocHold(x2)
+
+			' make sure we don't have a ghost object
+			If (doc Is Nothing) Then
+				Goto SaveNext
+			End If
+
+			' check for copy already in the archive
+			Set dtS = New NotesDateTime(doc.Created)
+			searchD = {Form = "} & doc.Form(0) & {" & @Text(@Created; "D0T0S2") = "} & dtS.DateOnly & " " & dtS.TimeOnly & {"}
+			Set cdF = dbArch.Search(searchD, Nothing, 1)
+			If (cdF.Count > 0) Then
+				logText = "  " & x2 & ". " & Left$(doc.Subject(0), 40) & "' created " & Format$(doc.Created, "mm/dd/yyyy hh:nn:ss AM/PM") & ", * duplicate, not saved"
+				Call logSend.LogAction("   " & logText)
+				Goto SaveNext
+			End If
+
+			' looks okay, save the archive document
+			logText = "  " & x2 & ". " & Left$(doc.Subject(0), 40) & "' created " & Format$(doc.Created, "mm/dd/yyyy")
+			Call logSend.LogAction("   " & logText)
+			Call doc.Save(True, False)
+SaveNext:
+		Next
+
+		' now flag the archived documents
+		Print "Flagging archived documents"
+		On Error Goto Sub_ErrorDelete
+		Call logSend.LogAction("Flagging:")
+		For x2 = 0 To Ubound(aDocRemove)
+			Set doc = aDocRemove(x2)
+			logText = "  " & x2 & ". " & Left$(doc.Subject(0), 40) & "' created " & Format$(doc.Created, "mm/dd/yyyy")
+			Call logSend.LogAction("   " & logText)
+			Call doc.ReplaceItemValue("PWarchived", "1")
+			Call doc.save(False, False)
+Deleted_Doc:
+		Next
+	End If
+
+Sub_Exit:
+	Print "Finally Done!!!"
+	MsgBox "A summary report is being mailed to you", 48, "PATHway AutoArchive"
+	Call logSend.LogAction("Saved bytes: " & Cstr(saved))
+	Call logSend.LogAction("Finished")
+	Call logSend.Close
+	Exit Sub
+
+Sub_Error:
+	Call logSend.Logerror(Err, x2 & ". [A]:   " & Error & " on line " & Erl & ": " & logText)
+
+	If (Err = 17412 Or Err = 549) Then
+		Resume Archived_Doc
+	End If
+
+	' Sometimes the server fails to respond.  This is probably temporary, so take a nap and try the next one.  If we bail here then none
+	' of the archived documents will be flagged as such, which will cause them to be picked up on the next archive cycle.
+	If (Err = 4000) Then
+		Sleep 30
+		Resume SaveNext
+	End If
+
+	If Not (bCommit) Then
+		MsgBox Error & "(" & Err & ") on line " & Erl, 48, "PATHway AutoArchive"
+	End If
+
+	Resume Sub_Exit
+
+Sub_ErrorDelete:
+	Call logSend.Logerror(Err, x2 & ". B " & Error & " on line " & Erl & ": " & logText)
+
+	If (Err = 4005) Then
+		Call logSend.Logerror(4005, "  already deleted.")
+		Resume Deleted_Doc
+	End If
+
+	Msgbox Error & "(" & Err & ") on line " & Erl, 48, "PATHway AutoArchive"
+	Resume Sub_Exit
+
+Sub_ErrorFolders:
+	Call logSend.Logerror(Err, x2 & ". [C]:   '" & Error & "' on line " & Erl & ": " & logText)
+
+	If (Err = 1028 Or Err = 4005 Or Err = 17412) Then
+		If (folder = "Inbox") Then
+			Resume NoFolders
+		Else
+			Resume UseInbox
+		End If
+	Else
+		If (Err = 549) Then
+			Resume Archived_Doc
+		End If
+	End If
+
+	Msgbox Error & "(" & Err & ") on line " & Erl, 48, "PATHway AutoArchive"
+	Resume Sub_Exit
+
+End Sub

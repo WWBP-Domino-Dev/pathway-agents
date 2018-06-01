@@ -1,0 +1,230 @@
+Sub Initialize
+
+	On Error GoTo SubErr
+
+	debug = False
+
+	Set session = New NotesSession
+	Set db = session.Currentdatabase
+
+	' Refer to global profile document to turn on debugging reporting
+	Set view = db.GetView(v_PROFILE)
+	If (view.EntryCount > 0) Then
+		Set docProfile = view.GetFirstDocument
+		If (docProfile.Getfirstitem("WebAuthDebug").Text = "1") Then
+			debug = True
+		End If
+	End If
+
+	If debug Then
+		Set logger = New NotesLog("Pathway Request Authentication Process")
+		Call logger.Openmaillog(administrator, "Log of Pathway Request validation")
+		Call logger.Logaction("PathwayEmailValidator agent " & agentVersion)
+		Call logger.Logaction("Creating new java objects for class BluePagesWrapper")
+		Call logger.Logaction("-----------------------------------------------------")
+	End If
+
+	' Feb 2015 - initialize wrapper Java class
+	Set jSessionJavaWrapper = New Javasession
+	Set jClassWrapper = jSessionJavaWrapper.Getclass("BluePagesWrapper")
+	Set jWrapper = jClassWrapper.Createobject()
+
+	' Pull in the incoming document from the web page and extract the XML content
+	Set thisDoc = session.Documentcontext
+	incomingXML = thisDoc.Request_Content(0)
+
+	If debug Then
+		Call logger.Logaction("Initialize(): Incoming XML is: ")
+		Call logger.Logaction("[" & incomingXML & "]")
+		Call logger.Logaction("-----------------------------------------------------")
+	End If
+
+	' Initialize the output stream for the browser
+	Print |Content-type:text|
+
+	' 10/2/2017
+	' Certain characters in the password break XML parsing, "&" appears to be the only one so far
+	' Check for DOM parsing errors in the input string.
+	' The input string is from the WebRequestValidation Javascript routine, that builds it out of
+	' the web page POST content.
+	If (InStr(1, incomingXML, "parsererror") > 1) Then
+		If (InStr(1, incomingXML, "&amp;") > 1) Then
+			' Locate the password element and extract the value
+			pw1 = InStr(1, incomingXML, "&lt;password&gt;") + 16
+			pw2 = InStr(1, incomingXML, "&lt;/password&gt;")
+			pw3 = pw2 - pw1
+			extractPW = Mid$(incomingXML, pw1, pw3)
+
+			' Extract the encoded "&" and loop through the string until all are converted
+			pw1 = InStr(1, extractPW, "&amp;")
+			Do While pw1 > 0
+				pw2 = InStr(1, extractPW, "&amp;") + 4
+				extractPW = Left$(extractPW, pw1 - 1) & "&" & Right(extractPW, Len(extractPW) - pw2)
+
+				pw1 = InStr(1, extractPW, "&amp;")
+			Loop
+
+			' Since DOM parsing is broken, also get the address
+			addr1 = InStr(1, incomingXML, "&lt;address&gt;") + 15
+			addr2 = InStr(1, incomingXML, "&lt;/address&gt;")
+			addr3 = addr2 - addr1
+			extractAddr = Mid$(incomingXML, addr1, addr3)
+
+			If debug Then
+				Call logger.Logaction("Extract POST fields and converted password")
+				Call logger.Logaction("[" & extractPW & "]")
+				Call logger.Logaction("[" & extractAddr & "]")
+			End If
+
+			' Throw an error to bypass the parsing calls
+			Error 30118, "DOM parsing error, bypass normal DOC processing"
+		Else
+			Error 30400, "Document parsing error, please switch to the FireFox browser"
+		End If
+	End If
+
+	' Check to see if there are invalid characters in front of the message,
+	' this seems to occur from IE10 on some machines
+	If (InStr(1, incomingXML, "<") > 1) Then
+		incomingXML = Mid$(incomingXML, InStr(1, incomingXML, "<"))
+		If debug Then
+			Call logger.Logaction("Initialize(): Snipped XML is: ")
+			Call logger.Logaction("[" & incomingXML & "]")
+		End If
+	End If
+
+	' Create the parser for the input XML
+	Set domParser = session.Createdomparser(incomingXML)
+	Call domParser.Parse()
+	Set domNode = domParser.document
+
+	' Walk the document tree to find the email address and password elements
+	Call walkTree2(domParser.document.Firstchild)
+
+	If debug Then
+		' try to traverse the whole tree
+		Call walkTree2(domParser.document.Firstchild)
+
+		pw1 = InStr(incomingXML, "<pass") + 9
+		pw2 = InStr(pw1, incomingXML, "</pass")
+		logger.Logaction("Show full input string: [" & incomingXML & "]")
+		logger.Logaction("Processing input string [" & Left(incomingXML, pw1) & "********" & Mid(incomingXML, pw2) & "]")
+	End If
+
+parserErrorBypass:
+	' July 2015 - call new wrapper for the functional Java classes
+	' First retrieve the user's name from BluePages
+	On Error GoTo JavaError
+
+	wrapperReturn = jWrapper.getBPData(txtEmail)
+
+	On Error GoTo AuthFailure
+
+	If debug Then
+		Call logger.Logaction("Java wrapper returned [" & wrapperReturn & "]")
+	End If
+
+	' The name will contain "ERR <error message>" if the BluePages call failed,
+	' otherwise it will contain the BluePages name value.
+	' This first call is made to catch invalid addresses
+	If (Left(wrapperReturn, 3) <> "ERR") Then
+		Set nameObj = New NotesName(wrapperReturn)
+		commonName = nameObj.Common
+
+		' If that succeeded, authenticate the intranet id
+		On Error GoTo JavaError
+
+		wrapperReturn = jWrapper.idAuth(txtEmail, password)
+
+		' Like the BluePages call the auth call message will be "ERR <error message>" in the event of an authentication failure
+		' This call will catch invalid passwords
+		On Error GoTo AuthFailure
+
+		If (Left(wrapperReturn, 3) = "ERR") Then
+			commonName = wrapperReturn
+			If debug Then
+				Call logger.Logaction("1. Java returned commonName [" & commonName & "]")
+			End If
+
+			Error 30900, "BluePages auth failure"
+		End If
+	Else
+		' The BluePage check failed, so load the error message into the return variable
+		commonName = wrapperReturn & " for name '" & txtEmail & "' - intranet email address not found"
+
+		If debug Then
+			Call logger.Logaction("2. Java returned commonName [" & commonName & "]")
+		End If
+
+		Error 30900, "BluePages identification failure"
+	End If
+
+ReturnValidation:
+	' Send back the reply to the browser
+	Print commonName
+
+	If debug Then
+		Call logger.Close()
+	End If
+
+subExit:
+	Exit Sub
+
+AuthFailure:
+
+	' If this was an explicit error call then simply return the error to the browser
+	If (Err = 30900) Then
+		Resume ReturnValidation
+		' otherwise some unhandled exception occurred and the administrator should be notified
+	Else
+		Resume SubErr
+	End If
+
+
+SubErr:
+	On Error GoTo 0
+
+	If (Err = 30118) Then
+		txtEmail = extractAddr
+		password = extractPW
+		Resume parserErrorBypass
+	End If
+
+	If (Err = 30400) Then
+		commonName = "ERR " & Error
+	Else
+		commonName = "ERR Internal validation failure, contact PATHway administrator"
+	End If
+
+	If Not debug Then
+		Set logger = New NotesLog("Pathway Request Authentication Process")
+		Call logger.Openmaillog(administrator, "SubErr: Log of Pathway Request validation")
+		Call logger.Logaction("PathwayEmailValidator agent " & agentVersion)
+	End If
+
+	Call logger.Logaction("Initialize().SubError: Incoming XML is [" & incomingXML & "]")
+	Call logger.Logaction("Initialize().SubError: Error '" & Error & "' on line " & Erl)
+	Call logger.Close()
+
+	Resume ReturnValidation
+
+JavaError:
+	On Error GoTo 0
+
+	commonName = "ERR Internal validation failure, contact PATHway administrator"
+
+	If Not debug Then
+		Set logger = New NotesLog("Pathway Request Authentication Process")
+		Call logger.Openmaillog(administrator, "JavaErr: Log of Pathway Request validation")
+		Call logger.Logaction("PathwayEmailValidator agent " & agentVersion)
+	End If
+
+	Set jError = jSessionJavaWrapper.Getlastjavaerror()
+
+	Call logger.Logaction("Initialize(): Error '" & Error & "' on line " & Erl)
+	Call logger.Logaction("Initialize(): Java error '" & jError.Errormsg)
+	Call logger.Logaction(jError.Stacktrace)
+	Call logger.Close()
+
+	Resume ReturnValidation
+End Sub

@@ -1,0 +1,78 @@
+%REM
+	Sub walkTree
+	Description: Comments for Sub
+%END REM
+Sub walkTree(domNode As NotesDOMNode)
+
+	Dim child2 As NotesDOMNode
+	Dim child3 As NotesDOMNode
+	Dim logger As NotesLog
+	Dim domNodeLocal As NotesDOMNode
+
+	Call logger.Logaction("Entering walkTree()")
+	On Error GoTo SubError
+
+	Set domNodeLocal = domNode
+
+	If Not domNodeLocal.IsNull Then
+		Select Case domNodeLocal.NodeType
+		Case DOMNODETYPE_DOCUMENT_NODE:
+			Call logger.Logaction("DOMNODETYPE_DOCUMENT_NODE:")
+			Call logger.Logaction("domNode.Nodename: " & domNodeLocal.Nodename)
+			Call logger.Logaction("domNode.Numberofchildnodes: " & domNodeLocal.Numberofchildnodes)
+
+			Set domChild = domNodeLocal.Firstchild
+			childCount = domNodeLocal.Numberofchildnodes
+
+			Call logger.Logaction("domChild.Nodename: " & domChild.Nodename)
+			Call logger.Logaction("domChild.Nodevalue: " & domChild.Nodevalue)
+
+			Set child2 = domChild.Firstchild
+
+			Call logger.Logaction("domChild.Firstchild.Nodename: " & child2.Nodename)
+			Call logger.Logaction("domChild.Firstchild.Nodevalue: " & child2.Nodevalue)
+
+			Set child3 = child2.Firstchild
+
+			Call logger.Logaction("domChild.Firstchild.Firstchild.Nodename: " & child3.Nodename)
+			Call logger.Logaction("domChild.Firstchild.Firstchild.Nodevalue: " & child3.Nodevalue)
+
+			While childCount > 0
+				Set domChild = domChild.Nextsibling
+				childCount = childCount - 1
+				Call walkTree(domChild)
+			Wend
+
+		Case DOMNODETYPE_TEXT_NODE:           ' Plain text node
+			Call logger.Logaction("DOMNODETYPE_TEXT_NODE:")
+			Call logger.Logaction("domNode.NodeName: " & domNodeLocal.NodeName)
+			Call logger.Logaction("domNode.NodeValue: " & domNodeLocal.NodeValue)
+
+		Case DOMNODETYPE_ELEMENT_NODE:        ' Most nodes are Elements
+			Call logger.Logaction("DOMNODETYPE_ELEMENT_NODE:")
+			Call logger.Logaction("domNode.NodeName: " & domNodeLocal.NodeName)
+			Call logger.Logaction("domNode.NodeValue: " & domNodeLocal.NodeValue)
+
+		Case Else
+			Call logger.Logaction("Case Else:")
+			Call logger.Logaction("domNode.NodeName: " & domNodeLocal.NodeName)
+			Call logger.Logaction("domNode.NodeValue: " & domNodeLocal.NodeValue)
+
+		End Select
+	Else
+		Call logger.Logaction("Node apparently null")
+	End If
+
+	Call logger.Logaction("Exiting walkTree()")
+
+subExit:
+	Exit Sub
+
+SubError:
+	On Error GoTo 0
+
+	Call logger.Logaction("walkTree().SubError: Incoming XML is [" & incomingXML & "]")
+	Call logger.Logaction("walkTree().SubError: Error '" & Error & "' on line " & Erl)
+
+	Resume subExit
+End Sub

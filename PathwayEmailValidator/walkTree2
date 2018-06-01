@@ -1,0 +1,105 @@
+%REM
+	Sub walkTree2
+	Description: Comments for Sub
+%END REM
+Sub walkTree2(domNode As NotesDOMNode)
+	Dim child As NotesDOMNode
+	Dim elt As NotesDOMNode
+	Dim attrs As NotesDOMNamedNodeMap
+	Dim a As NotesDOMAttributeNode
+	Dim LF As String
+	Dim domNodeLocal As NotesDOMNode
+
+	If debug Then Call logger.Logaction("Entering walkTree2()")
+
+	On Error GoTo SubError
+
+	Set domNodeLocal = domNode
+
+	If Not domNodeLocal.IsNull Then
+		Select Case domNodeLocal.NodeType
+		Case DOMNODETYPE_DOCUMENT_NODE:        ' If it is a Document node
+			If debug Then Call logger.Logaction("DOMNODETYPE_DOCUMENT_NODE:")
+			If debug Then Call logger.Logaction( "1. Document node: " + domNodeLocal.Nodename )
+
+			Set child = domNodeLocal.FirstChild   ' Get the first node
+
+			Dim numChildNodes As Integer
+			numChildNodes = domNodeLocal.NumberOfChildNodes
+			If debug Then Call logger.Logaction(" has " + Cstr(numChildNodes) + " Child Nodes")
+
+			While numChildNodes > 0
+				Set child = child.NextSibling ' Get next node
+				numChildNodes = numChildNodes - 1
+				If debug Then Call logger.Logaction("   call walkTree2() with child node")
+				Call walkTree2(child)
+			Wend
+
+		Case DOMNODETYPE_DOCUMENTTYPE_NODE:   ' It is a <!DOCTYPE> tag
+			If debug Then Call logger.Logaction("2. Document Type node: " + domNodeLocal.NodeName)
+
+		Case DOMNODETYPE_TEXT_NODE:           ' Plain text node
+			If debug Then Call logger.Logaction("DOMNODETYPE_TEXT_NODE:")
+			If debug Then Call logger.Logaction("3. Text node: " + domNodeLocal.NodeValue)
+
+		Case DOMNODETYPE_ELEMENT_NODE:        ' Most nodes are Elements
+			If debug Then Call logger.Logaction("DOMNODETYPE_ELEMENT_NODE:")
+			If debug Then Call logger.Logaction("4. Element node: " + domNodeLocal.NodeName )
+			Set elt = domNode
+			If debug Then Call logger.Logaction("  5. element nodename: " &  elt.nodeName)
+			If (elt.Nodename = "address") Then
+				If debug Then Call logger.Logaction("  5b. extracted address: " &  elt.FirstChild.Nodevalue)
+				txtEmail = elt.FirstChild.Nodevalue
+			End If
+			If (elt.Nodename = "password") Then
+				If debug Then Call logger.Logaction("  5b. extracted password: " &  elt.FirstChild.Nodevalue)
+				password = elt.FirstChild.Nodevalue
+			End If
+
+			Dim numAttributes As Integer, numChildren As Integer
+			numAttributes = elt.attributes.numberofentries
+			If debug Then Call logger.Logaction("  has " + Cstr(numAttributes) + " Attributes")
+
+			If (numAttributes > 0) Then
+				Set attrs = elt.Attributes     ' Get attributes
+
+				Dim i As Integer
+				For i = 1 To numAttributes     ' Loop through them
+					Set a = attrs.GetItem(i)
+					' Print attr. name & value
+					If debug Then Call logger.Logaction("  6. Attribute " + a.NodeName+": " + a.NodeValue)
+				Next
+			End If
+
+			numChildren =  elt.NumberOfChildNodes
+			If (numChildren > 0) Then
+				Set child = elt.FirstChild     ' Get child
+
+				While numChildren > 0
+					Call walkTree2(child)
+					Set child = child.NextSibling   ' Get next child
+					numChildren = numChildren - 1
+				Wend
+			End If
+
+		Case Else:
+
+		End Select  'node.NodeType
+	Else
+		If debug Then Call logger.Logaction("Node apparently null")
+	End If        'Not node.IsNull
+
+	If debug Then Call logger.Logaction("Exiting walkTree2()")
+
+subExit:
+	Exit sub
+
+SubError:
+	On Error GoTo 0
+
+	Call logger.Logaction("walkTree2().SubError: Incoming XML is [" & incomingXML & "]")
+	Call logger.Logaction("walkTree2().SubError: Error '" & Error & "' on line " & Erl)
+
+	Resume subExit
+
+End Sub

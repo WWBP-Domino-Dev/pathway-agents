@@ -1,0 +1,60 @@
+%REM
+	Function getElement
+	Description: Comments for Function
+%END REM
+Function getElement (domNode As NotesDOMNode, element As String) As String
+
+	Dim child As NotesDOMNode
+	Dim elt As NotesDOMNode
+	Dim domNodeLocal As NotesDOMNode
+	Dim numChildren As Integer
+
+	Dim xy As Boolean
+
+	On Error GoTo funcError
+
+	Set domNodeLocal = domNode
+
+	If Not domNodeLocal.IsNull Then
+		Select Case domNodeLocal.NodeType
+
+		Case DOMNODETYPE_TEXT_NODE:           ' Plain text node
+			xy = True
+
+		Case DOMNODETYPE_ELEMENT_NODE:        ' Most nodes are Elements
+			Set elt = domNode
+			If (elt.Nodename = "address") Then
+				getElement = elt.FirstChild.Nodevalue
+			End If
+			If (elt.Nodename = "password") Then
+				getElement = elt.FirstChild.Nodevalue
+			End If
+
+			numChildren =  elt.NumberOfChildNodes
+			If (numChildren > 0) Then
+				Set child = elt.FirstChild     ' Get child
+
+				While numChildren > 0
+					Call walkTree2(child)
+					Set child = child.NextSibling   ' Get next child
+					numChildren = numChildren - 1
+				Wend
+			End If
+
+		End Select  'node.NodeType
+	End If        'Not node.IsNull
+
+
+
+funcExit:
+	Exit Function
+
+funcError:
+	On Error GoTo 0
+
+	Call logger.Logaction("getElement().funcError: Incoming XML is [" & incomingXML & "]")
+	Call logger.Logaction("getElement().funcError: Error '" & Error & "' on line " & Erl)
+
+	Resume funcExit
+
+End Function

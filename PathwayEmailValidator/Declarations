@@ -1,0 +1,43 @@
+Dim session As NotesSession
+Dim ws As NotesUIWorkspace
+Dim db As NotesDatabase
+Dim view As NotesView
+Dim thisDoc As NotesDocument
+Dim docProfile As NotesDocument
+Dim nameObj As NotesName
+Dim logger As NotesLog
+
+Dim domParser As NotesDOMParser
+Dim domNode As NotesDOMDocumentNode
+Dim domChild As NotesDOMNode
+
+Dim txtEmail As String
+Dim password As String
+Dim commonName As String
+Dim incomingXML As String
+Dim wrapperReturn As String
+Dim extractPW As String
+Dim extractAddr As String
+
+Dim childCount As Integer
+Dim pw1 As Integer
+Dim pw2 As Integer
+Dim pw3 As Integer
+Dim addr1 As String
+Dim addr2 As String
+Dim addr3 As String
+
+
+Dim debug As Boolean
+Dim authOK As Boolean
+Dim parseExtract As Boolean
+
+' Feb 2015 - test new wrapper Java class
+Dim jSessionJavaWrapper As Javasession
+Dim jClassWrapper As Javaclass
+Dim jWrapper As Javaobject
+Dim jError As JavaError
+
+Const administrator = "owenge@us.ibm.com"
+Const agentVersion = "4.1"
+Const v_PROFILE = "Pathway Global Profile"

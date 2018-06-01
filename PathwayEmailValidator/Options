@@ -1,0 +1,24 @@
+%REM
+	Agent PathwayEmailValidator
+
+	Created Aug 8, 2014 by George Owen/Pittsburgh/IBM
+	Updated Feb 9, 2015 by George Owen/Pittsburgh/IBM
+	Updated July 23, 2015 by George Owen/Pittsburgh/IBM
+
+
+	Description: This agent is used by the Navigator and Request web pages to perform intranet authentication.
+	It originally utilized a CWA java library and a BluePages lotusscript library.   This was updated in early 2015
+	to utilize an updated IIPCWA library for authentication and a BluePages java library.
+
+	It was updated again in July of 2015 to utilize a new Java library that contains the most current Java libraries
+	for BluePages access and authentication.  All the Java code was consolidated into one Java library.
+
+	It references a new custom wrapper class that does the actual calls to the functional library classes.
+	This was done because handling some of the return objects from the Java calls was difficult if not impossible
+	in Lotusscript.  The wrapper class takes the same input but returns string for both functions.
+%END REM
+Option Public
+Option Declare
+
+Use "BluePages306"
+UseLSX "*javacon"

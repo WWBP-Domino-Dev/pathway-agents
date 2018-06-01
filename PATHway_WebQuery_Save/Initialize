@@ -1,0 +1,28 @@
+Sub Initialize
+%REM
+Editing for the web form is done by JavaScript at the client.
+%END REM
+
+	Dim session As New NotesSession
+	Dim db As NotesDatabase
+	Dim returnURL As String
+
+	' BGCOLOR="EEFFFF"
+	' COLOR="0A14D0"
+
+	returnURL = "http://" & session.CurrentDatabase.Server & "/" & session.CurrentDatabase.FilePath & "/PWayReqTemplate?OpenForm"
+
+	' print out response page for user
+	Print | Content-Type: text/html |
+	Print | <HTML> |
+	Print | <HEAD> <TITLE>PATHway Request Submission </TITLE> </HEAD> |
+	Print | <BODY TEXT="000000" > |
+	Print | <H2><CENTER>IBM Cloud PATHway Request submission is complete</CENTER></H2> |
+	Print | <HR WIDTH="100%" SIZE=8 ALIGN=center COLOR="0A14D0"> <BR> |
+	Print | <FONT SIZE=4>Your request has been submitted to the PATHway service. <BR> |
+	Print | You will be notified once the request has been processed and assigned.</FONT> <BR> <BR> |
+	Print | Click here to return to the Request Submission page:  |
+	Print | <A HREF="| & returnURL & |"> PATHway Request Page </A> <BR> <BR>|
+	Print | </BODY> </HTML> |
+
+End Sub

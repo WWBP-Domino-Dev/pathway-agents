@@ -1,0 +1,131 @@
+Sub Initialize
+
+	Const admin = "owenge@us.ibm.com"
+
+	On Error GoTo subErr
+
+	Set session = New NotesSession
+	Set ws = New NotesUIWorkspace
+	Set db = session.Currentdatabase
+
+	Set view = db.GetView(v_PROFILE)
+	If (view.EntryCount > 0) Then
+		Set docProfile = view.GetFirstDocument
+	End If
+
+	debug = True
+
+	If debug Then
+		Set logger = New NotesLog("Pathway Request Authentication Process")
+		Call logger.Openmaillog(admin, "Log of Pathway Request validation")
+		Call logger.Logaction("PathwayEmailValidator agent 4.0")
+	End If
+
+	' Initialize BluePages object
+	' Feb 2015 - initialize wrapper Java class
+	Set jSessionJavaWrapper = New Javasession
+	Set jClassWrapper = jSessionJavaWrapper.Getclass("BluePagesWrapper")
+	Set jWrapper = jClassWrapper.Createobject()
+
+	' Prompt for sample id and password
+	wsReplyMail = ws.Prompt(PROMPT_OKCANCELEDIT, "BP check", "Enter test email address")
+	wsReplyPass = ws.Prompt(PROMPT_OKCANCELEDIT, "BP check", "Enter test id password")
+
+	' Format of NotesID must be: "CN=Miles Davis/OU=Pittsburgh/O=IBM"
+	wsReplyNotes = ws.Prompt(PROMPT_OKCANCELEDIT, "BP check", "Enter test Notes id (<name>/<location>/IBM)")
+
+	' Build the sample string for the web parser
+	txtEmail = "<doc><address>" & wsReplyMail & "</address><password>" & wsReplyPass & "</password></doc>"
+
+	' Parse the string to create an XML object
+	Set domParser = session.Createdomparser(txtEmail)
+	Call domParser.Parse()
+	Set domNode = domParser.document
+
+	txtEmail = domNode.Firstchild.Firstchild.Firstchild.Nodevalue
+	password = domNode.Firstchild.Firstchild.NextSibling.Firstchild.Nodevalue
+	notesID = wsReplyNotes
+	Print txtEmail & " / " & password & " / " & notesID
+
+	On Error GoTo JavaError
+
+	' Call Java class to validate the email address
+	wrapperReturn = jClassWrapper.getBPData(txtEmail)
+	MsgBox "BP id check returned: " & wrapperReturn, 48, "Blue Pages Tester 306"
+
+	On Error GoTo subErr
+
+	' Check the BP return value
+	If (Left(wrapperReturn, 3) <> "ERR") Then
+
+		' Authentication was successful so extract the name portion
+		Set nameObj = New NotesName(wrapperReturn)
+		commonName = nameObj.Common
+
+
+		' If that succeeded, authenticate the intranet id
+		On Error GoTo JavaError
+
+		wrapperReturn = jWrapper.idAuth(txtEmail, password)
+		MsgBox "BP auth check returned: " & wrapperReturn, 48, "Blue Pages Tester 306"
+
+		On Error GoTo subErr
+
+		' Like the BluePages call the auth call message will be "ERR <error message>" in the event of an authentication failure
+		' This call will catch invalid passwords
+
+		If (Left(wrapperReturn, 3) = "ERR") Then
+
+			' Password authentication failed
+			commonName = wrapperReturn
+			Print "BP auth check failure: " & commonName
+
+			If debug Then
+				Call logger.Logaction("1. Java returned commonName [" & commonName & "]")
+			End If
+
+			Error 30900, "BluePages auth failure"
+		End If
+	Else
+		' The BluePages ID check failed so load the error message into the return variable
+		commonName = wrapperReturn
+		Print "BP id check failure: " & commonName
+
+		If debug Then
+			Call logger.Logaction("2. Java returned commonName [" & commonName & "]")
+		End If
+
+		Error 30900, "BluePages identification failure"
+	End If
+
+	' Construct the valid string for the Java call
+	CN = "CN=" + StrLeft(wsReplyNotes, "/") + "/"
+	O = "O=" + StrRightBack(wsReplyNotes, "/")
+	OU = "OU=" + StrLeft(StrRight(wsReplyNotes, "/"), "/") + "/"
+	Print "LDAP string parts: " & CN + OU + O
+
+	On Error GoTo JavaError
+
+	wrapperReturn = jWrapper.getBPManager(CN + OU + O)
+	MsgBox "BP manager retrieval returned: " & wrapperReturn, 48, "Blue Pages Tester 306"
+
+subExit:
+	Stop
+
+	Exit sub
+
+subErr:
+	MsgBox Error & " on line " & erl, MB_OK, "BP Tester"
+	Resume subExit
+
+JavaError:
+
+	Set jError = jSessionJavaWrapper.Getlastjavaerror()
+
+	MsgBox Error & " on line " & Erl, MB_OK, "BP Tester"
+
+	Print jError.Errormsg
+	Print jError.Stacktrace
+
+	Resume subExit
+End Sub

@@ -1,0 +1,42 @@
+Dim ws As NotesUIWorkspace
+Dim session As NotesSession
+Dim db As NotesDatabase
+Dim view As NotesView
+Dim doc As NotesDocument
+Dim thisDoc As NotesDocument
+Dim docProfile As NotesDocument
+Dim nameObj As NotesName
+Dim logger As NotesLog
+
+Dim domParser As NotesDOMParser
+Dim domNode As NotesDOMDocumentNode
+Dim domChild As NotesDOMNode
+
+' Feb 2015 - test new wrapper Java class
+Dim jSessionJavaWrapper As Javasession
+Dim jClassWrapper As Javaclass
+Dim jWrapper As Javaobject
+Dim jError As JavaError
+
+Dim txtEmail As String
+Dim password As String
+Dim notesID As String
+Dim wrapperReturn As String
+Dim CN As String
+Dim OU As String
+Dim o As String
+
+Dim bpName As Variant
+Dim bpSerial As Variant
+Dim wsReplyMail As Variant
+Dim wsReplyPass As Variant
+Dim wsReplyNotes As Variant
+
+Dim objDoc As Variant
+Dim commonName As String
+
+Dim childCount As Integer
+Dim bBluePages As Boolean
+Dim debug As Boolean
+
+Const v_PROFILE = "Pathway Global Profile"

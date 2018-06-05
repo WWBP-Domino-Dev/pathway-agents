@@ -1,0 +1,54 @@
+%REM
+	Sub walkTree
+	Description: Comments for Sub
+%END REM
+	Sub walkTree(domNode As NotesDOMNode)
+
+		Dim child2 As NotesDOMNode
+		Dim child3 As NotesDOMNode
+
+
+		If Not domNode.IsNull Then
+			Select Case domNode.NodeType
+			Case DOMNODETYPE_DOCUMENT_NODE:
+				Print domNode.Nodename
+				Print domNode.Numberofchildnodes
+
+				Set domChild = domNode.Firstchild
+				childCount = domNode.Numberofchildnodes
+
+				Print domChild.Nodename
+				Print domChild.Nodevalue
+
+				Set child2 = domChild.Firstchild
+
+				Print child2.Nodename
+				Print child2.Nodevalue
+
+				Set child3 = child2.Firstchild
+
+				Print child3.Nodename  'this is a text node
+				Print child3.Nodevalue 'this has value of <address>
+
+				While childCount > 0
+					Set domChild = domChild.Nextsibling
+					childCount = childCount - 1
+					Call walkTree(domChild)
+				Wend
+
+			Case DOMNODETYPE_TEXT_NODE:           ' Plain text node
+				Print domNode.NodeName
+				Print domNode.NodeValue
+
+			Case DOMNODETYPE_ELEMENT_NODE:        ' Most nodes are Elements
+				Print domNode.NodeName
+				Print domNode.NodeValue
+
+			Case Else
+				Print domNode.NodeName
+				Print domNode.NodeValue
+
+			End Select
+		End If
+
+	End Sub

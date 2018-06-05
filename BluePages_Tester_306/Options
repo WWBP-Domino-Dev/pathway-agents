@@ -1,0 +1,10 @@
+%REM
+	Agent PathwayEmailValidator
+	Created Aug 31, 2013 by George Owen/Pittsburgh/IBM
+	Description: Comments for Agent
+%END REM
+Option Public
+Option Declare
+%Include "lsconst.lss"
+Use "BluePages306"
+UseLSX "*javacon"

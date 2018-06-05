@@ -1,0 +1,123 @@
+Sub Initialize
+
+%REM
+Name:
+	PATHway\InboxClean
+
+Description:
+	Clean up Inbox documents that have been moved to the Resource folders.
+
+	When documents are moved to the Resource folders, they should activate code
+	which removes the PATHway items to prevent them being displayed in the Custom views.
+	This is not happening consistently.
+
+	1. Make a list of the UNIDs of all the Inbox documents
+	2. Scan the Custom Views\By RR view
+	3. For each document that isn't in the UNID list, move it to the Resource folder
+
+History:
+%END REM
+
+	Dim vwInbox As NotesView
+	Dim vwRR As NotesView
+	Dim doc As NotesDocument
+	Dim rt As NotesRichTextItem
+
+	Dim sUNID List As String
+	Dim sFolder As String
+	Dim sErrText As String
+
+	Dim nErr As Integer
+
+	On Error Goto Agent_Error
+
+	Set vwInbox = db.GetView("($Inbox)")
+	vwInbox.AutoUpdate = False
+
+	' build an array of the UNID of all the Inbox documents
+	Set doc = vwInbox.GetFirstDocument
+	Do Until doc Is Nothing
+		sUNID(doc.UniversalID) = 1
+		Set doc = vwInbox.GetNextDocument(doc)
+	Loop
+
+	' get the view which lists all open documents
+	Set vwRR = db.GetView("Pathway Open By Request")
+
+	' make sure we're not disrupted by deletions in the view index
+	vwRR.AutoUpdate = False
+
+	Set doc = vwRR.GetFirstDocument
+	Do Until doc Is Nothing
+
+		' if this document is not in the UNID array, clean it up and move it to the TAM folder
+		If Not (Iselement(sUNID(doc.UniversalID))) Then
+
+			If (doc.HasItem("PWayTam")) Then
+				If (Len(doc.GetItemValue("PWayTam")(0)) > 0) Then
+					sFolder = v_TAMFOLDER & doc.GetItemValue("PWayTam")(0)
+				Else
+					Error ERR_PW_MISSING, MSG_PW_MISSING
+				End If
+			Else
+				Error ERR_PW_MISSING, MSG_PW_MISSING
+			End If
+
+			' build an array of all the PATHway item names
+			Forall itm In doc.Items
+				If (Ucase$(itm.Name) Like "PWAY*") Then
+					aFields(itm.Name) = "1"
+				End If
+			End Forall
+
+			' remove all the PATHway items from the document
+			Forall nme In aFields
+				Call doc.RemoveItem(Listtag(nme))
+			End Forall
+
+			' save and move to its TAM folder
+			Call doc.Save(True, True)
+
+			Call doc.PutInFolder(sFolder)
+			Call doc.RemoveFromFolder("($Inbox)")
+
+		End If
+
+NextDoc:
+		Set doc = vwRR.GetNextDocument(doc)
+	Loop
+
+	vwInbox.AutoUpdate = True
+
+	' close debug class
+
+Agent_Exit:
+	If (nErr) Then
+		Set doc = db.CreateDocument
+		Call doc.ReplaceItemValue("Form", "Memo")
+		Call doc.ReplaceItemValue("SendTo", ADMIN_SENDTO)
+		Call doc.ReplaceItemValue("Subject", "PATHWAY agent InboxClean errors")
+		If (Len(sErrText) > 0) Then
+			Set rt = doc.CreateRichTextItem("Body")
+			Call rt.AppendText(sErrText)
+		End If
+
+		Call doc.Send(False)
+	End If
+
+	Exit Sub
+
+Agent_Error:
+	nErr = True
+	If Not (doc Is Nothing) Then
+		sErrtext = sErrText & "Document '" & doc.GetItemValue("Subject")(0) & "': "
+	End If
+	sErrText = sErrText & Error & ", line " & Erl & Chr(13)
+
+	If (Err = ERR_PW_MISSING) Then
+		Resume NextDoc
+	Else
+		Resume Agent_Exit
+	End If
+
+End Sub

@@ -1,0 +1,470 @@
+%REM
+	Sub CustomReport
+	Description: Comments for Sub
+%END REM
+Sub CustomReport (queryString As String, source As String)
+
+	%REM
+	Called via an OpenAgent URL
+
+	Creates simple table with the Query_String arguments
+
+	Sample URL:
+
+	http://<server>/pathway.nsf/Pat	hwayWebViewDisplayDirect?OpenAgent&ReportName=CustomReport&ReportUser=CN=Bob Smith/OU=Pittsburgh/O=IBM&PWayGEO=Latin%20America
+	Query string = ReportName=StatusReport&ReportUser=Waldo Pepper&PWayID=24223
+
+	%END REM
+	Dim db As NotesDatabase
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim dt As NotesDateTime
+
+	Dim tokenArray As Variant
+	Dim tokenSplit As Variant
+	Dim tokenPairs List As String
+
+	Dim argsList As Variant
+	Dim tokenList As Variant
+	Dim valExplode As Variant
+	Dim x As Integer
+	Dim y As Integer
+
+	Dim qs As String
+	Dim cookieString As String
+	Dim cookiePathway As String
+	Dim search As String
+	Dim argKey As String
+	Dim argValue As String
+	Dim reportUser As String
+
+	Dim multiVal As String
+	Dim badStr(2) As String
+	Dim newstr(2) As String
+	Dim columnFields As Variant
+	Dim dateArgs List As String
+	Dim dbServer As String
+	Dim dbPath As String
+	Dim reqURL As String
+	Dim htmlString As String
+	Dim debugText As String
+	Dim debugCol As String
+
+	Dim headerString As String
+	Dim headerArray As Variant
+	Dim fieldsString As String
+	Dim fieldsArray As Variant
+
+	Const domain = ".dub.usoh.ibm.com"
+	Const YES = "Y"
+	Const NO = "N"
+
+	' Set sequential list of field names. Each field must be accounted for in the Select Case statement for each doc.
+	fieldsString = "PWayID," & _
+	"PWayStatus," & _
+	"PWayISV," & _
+	"PWayPartnerType," & _
+	"PWaySiebelNum," & _
+	"PWayCEID," & _
+	"PWayGEO," & _
+	"PWayCountry," & _
+	"PWayTAM," & _
+	"PWayRevTotal," & _
+	"PWayRevQtr," & _
+	"PWayWebSphereRevPortion," & _
+	"PWayCloudRecurRev," & _
+	"PWayCloudRecurFirstYear," & _
+	"PWayRevAslOem," & _
+	"PWaySponsorOrg," & _
+	"PWaySponsor," & _
+	"PWayHelp," & _
+	"PWayPractEngaged," & _
+	"PWayPriority," & _
+	"PWayDeliver," & _
+	"PWayEngPhase," & _
+	"PWayNeeded," & _
+	"PostedDate," & _
+	"PWayClosedDate," & _
+	"PWayProd," & _
+	"PWayEstCostAmt," & _
+	"PWayResProvider," & _
+	"PWayResName," & _
+	"PWayResProvider2," & _
+	"PWayResName2," & _
+	"PWayRevenue," & _
+	"PWayDuration," & _
+	"PWayDurationType," & _
+	"PWayCalcWeeks"
+
+	' turn the field string into an array
+	columnFields = Split(fieldsString, ",")
+
+	' set sequential list of header labels.   this must match fieldsString variable except for the ID column.
+	' that header column is output separately with special formatting.
+	headerString = "Status," & _
+	"Partner," & _
+	"Partner Type," & _
+	"SalesConnect," & _
+	"CEID," & _
+	"GEO," & _
+	"Country," & _
+	"Submitter," & _
+	"Rev Opp," & _
+	"Qtr," & _
+	"IBM Cloud Rev Portion," & _
+	"IBM Cloud Recurring Rev," & _
+	"IBM Cloud Total Recurring Rev for 1st Year," & _
+	"Embedded Solution Agreement," & _
+	"Sponsor Org," & _
+	"Sponsor," & _
+	"Engagement," & _
+	"Practitioners Engaged," & _
+	"Priority," & _
+	"Delivery," & _
+	"Phase," & _
+	"Date Needed," & _
+	"Created," & _
+	"Close Date," & _
+	"Product," & _
+	"Pgm Spend," & _
+	"Provider," & _
+	"Resource," & _
+	"2nd Provider," & _
+	"2nd Resource," & _
+	"Rev," & _
+	"Duration," & _
+	"Increment," & _
+	"Weeks"
+
+	' turn the header string into an array
+	headerArray = Split(headerString, ",")
+
+	' build arrays for cleaning up the column values.  have to remove commas and line-feed characters
+	' this is the array of characters to be replaced
+	badStr(0) = ","
+	badStr(1) = Chr(10)
+	badStr(2) = Chr(13)
+
+	' this is the array of replacement characters
+	newStr(0) = "/"
+	newStr(1) = ""
+	newStr(2) = ""
+
+	' the date fields need special processing for the search
+	dateArgs("PWayNeededFrom") = "PWayNeeded"
+	dateArgs("PWayNeededTo") = "PWayNeeded"
+	dateArgs("PWayClosedDateFrom") = "PWayClosedDate"
+	dateArgs("PWayClosedDateTo") = "PWayClosedDate"
+	dateArgs("PostedDateFrom") = "PostedDate"
+	dateArgs("PostedDateTo") = "PostedDate"
+
+	On Error GoTo Sub_Error
+
+	Set session = New NotesSession
+	Set db = session.CurrentDatabase
+	If sendDebug Then
+		Call logger.LogAction("CustomReport()")
+	End If
+
+	' generate initial page content.  explicitly code the Content-Type so that Domino will not generate
+	' the boilerplate tags.  this allows us to code a title in the header section.
+
+	htmlString = |Content-Type:text/html| & NL
+	htmlString = htmlString & |<html>| & NL
+	htmlString = htmlString & |<head>| & NL
+	htmlString = htmlString & |<title>IBM Cloud PATHway Custom Report</title>| & NL
+	htmlString = htmlString & |</head>| & NL
+	htmlString = htmlString & |<body>| & NL
+
+	' tokenize the query string
+	argsList = Split(queryString, "&")
+	If sendDebug Then
+		Call logger.Logaction("CustomReport(): input query string = " & querystring)
+	End If
+
+	' Convert each token pair into a key-value pair in a List
+	' Query String = ReportName=StatusReport&ReportUser=Waldo Pepper&PWayID=24223
+
+	ForAll token In argsList
+		debugText = debugText & |Query token = [| & token & |]|
+		tokenSplit = Split(token, "=")
+		tokenPairs(tokenSplit(0)) = tokenSplit(1)
+	End ForAll
+
+	' Pull out the two required query parameters
+	reportUser = Replace(tokenPairs("PWayTAM"), "%20", " ")
+
+	' set up default path for document links
+	dbPath = db.Filepath
+	dbServer = StrRight(StrLeft(db.Server, "/"), "CN=")
+	If (source = "notes") Then
+		reqURL = "http://" & dbServer & domain & "/" & dbPath & "/PWStatus?ReadForm&PWayReq="
+	Else
+		reqURL = "http://" & dbServer & domain & "/" & dbPath & "/PathwayWebViewDisplayDirect?OpenAgent&ReportName=StatusReport&ReportUser=" & reportUser & "&PWayID="
+	End If
+
+	debugText = |DB values: | & dbPath & |/| & dbServer & |<br>| & NL
+	debugText = debugText & |query string: | & queryString & |<br>| & NL
+
+	' initialize the search formula
+	search = {Form = "PWayData" & ! @IsAvailable(PWayEngDate)}
+
+	' process the input query string.  it will have key-value pairs that need to be converted to a new search string
+	' examples:
+	'   'PWayISV=NETINFO' becomes @Contains(PWayISV; "NETINFO")
+	'   'PWayISV=NETINFO:Alpine' becomes @Contains(PWayISV; "NETINFO":"Alpine")
+	ForAll token In argsList
+		' split the query argument into key and value
+		tokenList = Split(token, "=")
+
+		' verify we have a valid argument
+		If (UBound(tokenList) > 0) Then
+			' pull out the values.  the actual value may have been reformatted by the browser so fix that if necessary
+			argKey = tokenList(0)
+			argValue = Replace(tokenList(1), "%20", " ")
+
+			' the date fields require special treatment, but all other fields can be processed as-is
+			Select Case argKey
+			Case "PWayNeededFrom"
+				search = search & { & } & dateArgs(argKey) & {>= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case "PWayNeededTo"
+				search = search & { & } & dateArgs(argKey) & {<= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case "PWayClosedDateFrom"
+				search = search & { & } & dateArgs(argKey) & {>= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case "PWayClosedDateTo"
+				search = search & { & } & dateArgs(argKey) & {<= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case "PostedDateFrom"
+				search = search & { & } & dateArgs(argKey) & {>= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case "PostedDateTo"
+				search = search & { & } & dateArgs(argKey) & {<= @Date(} & Left(argValue, 4) & {; } & Mid(argValue, 5, 2) & {; } & Right(argValue, 2) & {)}
+			Case Else
+				' the values need to be wrapped in quotes
+				' convert the string into an array (probably with only one entry),
+				' then replace the value(s) with the same wrapped in quotes
+				valExplode = Split(argValue, ":")
+				For x = 0 To UBound(valExplode)
+					valExplode(x) = {"} & valExplode(x) & {"}
+				Next
+
+				' convert the value back into a string with colon delimiters
+				search = search & { & @Contains(} & argKey & {; } & Join(valExplode, ":") & {)}
+			End Select
+			If sendDebug Then
+				Call logger.Logaction("CustomReport(): process token '" & token & "', search string = '" & search & "'")
+			End If
+
+		End If
+	End ForAll
+
+	' execute database search
+	Set dc = db.Search(search, Nothing, 0)
+	debugText = debugText & |search criteria: | & search & |<br>| & NL
+	debugText = debugText & |search count: | & Str(dc.Count) & |<br>| & NL
+	'Error 30100, "debug exit 1"
+
+	' create in-line CSS to format table with new font size and border attributes
+	htmlString = htmlString & |<style type="text/css">| & NL
+	htmlString = htmlString & |.view {| & NL
+	htmlString = htmlString & |  font-size:0.8125em;| & NL
+	htmlString = htmlString & |  border: 1px solid gray;| & NL
+	htmlString = htmlString & |  border-collapse:collapse;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |.ibmblue {| & NL
+	htmlString = htmlString & |   background-color: #95B3DA;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |</style>| & NL
+
+	' construct banner table
+	htmlString = htmlString & |<table width="100%" border="0" cellspacing="0" cellpadding="0">| & NL
+	htmlString = htmlString & |<tr valign="top"><td class="ibmblue" height="40" width="1%">&nbsp</td>| & NL
+	htmlString = htmlString & |<tr valign="top"><td class="ibmblue" height="40" width="99%"><b><font size="5">IBM Cloud PATHway Requestor's Summary Report</font></b></td></tr>| & NL
+	htmlString = htmlString & |</td></tr></table><br>| & NL
+
+	' make sure something was returned
+	If (dc.Count = 0) Then
+		htmlString = htmlString & |<br><h2>Selection criteria was too restrictive, no documents were returned</h2>| & NL
+		htmlString = htmlString & search
+		If sendDebug Then
+			Call logger.LogAction("CustomReport(): no records returned")
+		End If
+
+		GoTo Sub_Exit
+	End If
+	If (dc.Count > 500) Then
+		htmlString = htmlString & |<br><h2>Selection criteria was too broad, over 500 documents were returned</h2>| & NL
+		htmlString = htmlString & search
+		If sendDebug Then
+			Call logger.LogAction("CustomReport(): too many records returned")
+		End If
+
+		GoTo Sub_Exit
+	End If
+
+	' create link back to Navigator page.
+	htmlString = htmlString & |<a href="http://| & dbServer & domain & "/" & dbPath & |/PWayNav?OpenForm">PATHway Navigator</a><br><p>|
+
+	' create data table with column headers.
+	htmlString = htmlString & |<table class="view" border="1" cellpadding="2">| & NL
+	htmlString = htmlString & |<tr>| & NL
+
+	' output the header column for the ID in a different color
+	htmlString = htmlString & |<th class="ibmblue">ID</th>| & NL
+
+	' output the rest of the header row
+	ForAll header In headerArray
+		htmlString = htmlString & |<th class="ibmblue" >| & header & |</th>| & NL
+	End ForAll
+
+	' finish the header row
+	htmlString = htmlString & |</tr>| & NL
+
+	debugCol = "initialized"
+
+	' process each document in the collection
+	Set doc = dc.GetFirstDocument
+	Do Until doc Is Nothing
+
+		' open the row
+		htmlString = htmlString & |<tr>| & NL
+
+		' process the ordered list of fields
+		ForAll colName In columnFields
+
+			debugCol = colName
+
+			' open the cell
+			If (colName = "PWayID") Then
+				htmlString = htmlString & |<td class="ibmblue">| & NL
+			Else
+				htmlString = htmlString & |<td>| & NL
+			End If
+
+			' some columns can be output directly, while others require special formatting
+			' http://wwbpnotesa.dub.usoh.ibm.com/TestVersions/test_pathway.nsf/PWStatus?ReadForm&PWayReq=12651&PWayTAM=George Owen">12651</a>
+			Select Case colName
+
+			Case "PWayID"
+				htmlString = htmlString & |<a style="font-size:10pt" href="| & reqURL & doc.getFirstItem(colName).Text & |">| & doc.getFirstItem(colName).Text & |</a>| & NL
+
+			Case "PWayISV", "PWayPartnerType", "PWayTAM", "PWayPriority", "PWayDeliver", "PWayEngPhase", "PWayHelp", "PWayProd", "PWayDuration", "PWayDurationType"
+				htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+
+			Case "PWayResProvider", "PWayResName", "PWayResProvider2", "PWayResName2", "PWayRevenue", "PWaySiebelNum", "PWayCEID"
+				If (doc.Hasitem(colName)) Then
+					If (Len(doc.getFirstItem(colName).Text) > 0) Then
+						htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+					Else
+						htmlString = htmlString & "&nbsp;" & NL
+					End If
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PWayGEO", "PWayCountry", "PWaySponsorOrg", "PWaySponsor", "PWayPractEngaged"
+				If (doc.Hasitem(colName)) Then
+					If (Len(doc.getFirstItem(colName).Text) > 0) Then
+						htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+					Else
+						htmlString = htmlString & "&nbsp;" & NL
+					End If
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PWayEstCostAmt", "PWayRevTotal", "PWayWebSphereRevPortion", "PWayCloudRecurRev", "PWayCloudRecurFirstYear"
+				If (doc.Hasitem(colName)) Then
+					If (Len(doc.getFirstItem(colName).Text) > 0) Then
+						htmlString = htmlString & Format$(doc.getFirstItem(colName).Text, "$###,###,###,##0") & NL
+					Else
+						htmlString = htmlString & "&nbsp;" & NL
+					End If
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PostedDate", "PWayNeeded", "PWayCalcWeeks"
+				If (doc.Hasitem(colName)) Then
+					htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PWayClosedDate"
+				If (doc.Hasitem("PWayClosed")) Then
+					If (doc.GetFirstItem("PWayClosed").Text = "1") Then
+						htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+					Else
+						htmlString = htmlString & "&nbsp;" & NL
+					End If
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PWayStatus"
+				If (doc.Hasitem("PWayClosed")) Then
+					If (doc.GetFirstItem("PWayClosed").Text = "1") Then
+						htmlString = htmlString & doc.GetFirstItem("PWayClosedStatus").Text & NL
+					Else
+						htmlString = htmlString & doc.GetFirstItem(colName).Text & NL
+					End If
+				Else
+					htmlString = htmlString & doc.GetFirstItem(colName).Text & NL
+				End If
+
+			Case "PWayRevQtr"
+				If (doc.Hasitem(colName)) Then
+					htmlString = htmlString & doc.getFirstItem(colName).Text & NL
+				Else
+					htmlString = htmlString & "&nbsp;" & NL
+				End If
+
+			Case "PWayRevAslOem", "PWayFeePositioned"
+				If (doc.Hasitem(colName)) Then
+					If (doc.GetFirstItem(colName).Text = "1") Then
+						htmlString = htmlString & YES & NL
+					Else
+						htmlString = htmlString & NO & NL
+					End If
+				Else
+					htmlString = htmlString & NO & NL
+				End If
+			End Select
+
+			' close the cell
+			htmlString = htmlString & |</td>| & NL
+		End ForAll
+
+		' close the row
+		htmlString = htmlString & |</tr>| & NL
+		Set doc = dc.GetNextDocument(doc)
+	Loop
+
+	' close the table
+	htmlString = htmlString & |</table>| & NL
+
+
+Sub_Exit:
+	htmlString = htmlString & |</body>| & NL
+	htmlString = htmlString & |</html>|
+	Print htmlString
+
+	Exit Sub
+
+Sub_Error:
+
+	If Not sendDebug Then
+		Set logger = session.CreateLog("PathwayWebViewDisplayDirect")
+		Call logger.OpenMailLog(debugAdmin,"PATHway PathwayWebViewDisplayDirect")
+		Call logger.LogAction("Starting processing of new web report")
+		sendDebug = True
+	End If
+
+	Call logger.LogAction("CustomReport(): " & Error & "(" & Err & ") on line " & Erl)
+	Call logger.LogAction(debugText)
+
+	htmlString = htmlString & |CustomReport() error was | & Error & |<br>| & NL
+	htmlString = htmlString & |line was | & Erl & |<br>| & NL
+	htmlString = htmlString & debugText
+
+	Resume Sub_Exit
+End Sub

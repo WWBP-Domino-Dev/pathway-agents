@@ -1,0 +1,220 @@
+Sub Initialize
+
+%REM
+	Called via an OpenAgent URL
+
+	Creates simple table with the Query_String arguments
+
+	Sample URL:
+
+	http://<server>/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=CustomReport&ReportUser=dbelkin@ca.ibm.com&PWayGEO=Latin%20America:North%20America
+	Query string = ReportName=StatusReport&ReportUser=Waldo Pepper&PWayID=24223
+
+%END REM
+
+	Dim db As NotesDatabase
+	Dim doc As NotesDocument
+	Dim aclName As NotesName
+	Dim acl As NotesACL
+	Dim acle As NotesACLEntry
+
+	Dim tokenArray As Variant
+	Dim tokenSplit As Variant
+	Dim tokenPairs List As String
+
+	Dim qs As String
+	Dim debugText As String
+	Dim cookiePathway As String
+	Dim cookiePathwayAddr As String
+	Dim cookiePathwayName As String
+	Dim htmlString As String
+	Dim reportName As String
+	Dim reportUser As String
+
+	Dim mgrAccess As Boolean
+
+
+	Set session = New NotesSession
+	Set db = session.Currentdatabase
+
+	sendDebug = False
+	debugText = NL
+	debugText = debugText & "PathwayWebViewDisplayDirect Agent 1.0" & "<br>" & NL
+
+	' define logger for debugging
+	If sendDebug Then
+		Set logger = session.CreateLog("PathwayWebViewDisplayDirect")
+		Call logger.OpenMailLog(debugAdmin,"PATHway PathwayWebViewDisplayDirect")
+		Call logger.LogAction("Starting processing of new web report")
+	End If
+
+	On Error GoTo Agent_Error
+
+	' extract HTTP CGI variables
+	Set doc = session.Documentcontext
+	qs = StrRight(doc.Query_String(0), "&")
+	If sendDebug Then
+		Call logger.LogAction("Initialize(): query string = " & qs)
+	End If
+
+	' 2015-01: Create a List from the Query_String values
+	'   First split the token pairs into an array
+	tokenArray = Split(qs, "&")
+
+	' Convert each token pair into a key-value pair in a List
+	ForAll token In tokenArray
+		tokenSplit = Split(token, "=")
+		tokenPairs(tokenSplit(0)) = tokenSplit(1)
+	End ForAll
+
+	' Pull out the two required query parameters
+	reportName = tokenPairs("ReportName")
+	reportUser = Replace(tokenPairs("ReportUser"), "%20", " ")
+
+	If sendDebug Then
+		Call logger.LogAction("Initialize(): from query string, Report Name = " & reportName)
+		Call logger.LogAction("Initialize(): from query string, Report User = " & reportUser)
+	End If
+
+	' Remove them from the query string array and collapse the array
+	tokenArray(0) = ""			' ReportName
+	tokenArray(1) = ""			' ReportUser
+	tokenArray = FullTrim(tokenArray)
+
+	' Now rebuild the query string without the fixed parameters and remove the trailing "&"
+	qs = ""
+	ForAll token In tokenArray
+		qs = qs & token & "&"
+	End ForAll
+	qs = Left(qs, Len(qs) - 1)
+	If sendDebug Then
+		Call logger.LogAction("Initialize(): updated query string = " & qs)
+	End If
+
+	debugText = debugText & "PathwayWebViewDisplayDirect Agent 1.0" & NL
+	debugText = debugText & |report name: [| & reportName & |] <br>| & NL
+	debugText = debugText & |report user: [| & reportUser & |] <br>| & NL
+	debugText = debugText & |modified query string: [| & qs & |] <br>| & NL
+
+	' look for the Pathway cookie
+	cookiePathway = getCookieVal(doc.HTTP_COOKIE(0), "PATHwayUser")
+	cookiePathwayAddr = StrLeft(cookiePathway, "|")
+	cookiePathwayName = StrRight(cookiePathway, "|")
+	If sendDebug Then
+		Call logger.LogAction("Initialize(): PATHway cookie = " & cookiePathway)
+	End If
+
+	debugText = debugText & |cookie for Pathway: [| & cookiePathway & |] <br>| & NL
+
+	' Look for matching ACL on db for manager access
+	mgrAccess = False
+
+	' extract the ACl from the database
+	Set acl = db.Acl
+	Set acle = acl.Getfirstentry()
+	debugText = debugText & |search ACL for: [| & cookiePathwayName & |] <br>| & NL
+
+	Do Until acle Is Nothing
+		Set aclName = New NotesName(acle.Name)
+		If (cookiePathwayName = aclName.Common) Then
+			If (acle.Level = ACLLEVEL_MANAGER) Then
+				mgrAccess = True
+				If sendDebug Then
+					Call logger.LogAction("Initialize(): user is designated Manager")
+				End If
+			End If
+			Exit Do
+		End If
+
+		Set acle = acl.Getnextentry(acle)
+	Loop
+
+	' If caller is not a Manager, then a cookie must be present and it must match the user in the URL
+	If Not (mgrAccess) Then
+		debugText = debugText & |User is not a manager <br>| & NL
+		If (Len(cookiePathway) = 0) Then
+			Call ErrorPage("Authentication cookie missing or invalid, you may need to restart the browser (Firefox most likely to have this problem)")
+			debugText = debugtext & |auth error: user '| & reportUser & |' vs. cookie '| & cookiePathwayName & |' <br>| & NL
+			If sendDebug Then
+				Call logger.LogAction("Initialize(): PATHway cookie missing for non-Manager ")
+			End If
+			Error 30000, ""
+		End If
+	End If
+
+	' Call requested report routine
+	Select Case reportName
+
+		Case "CustomReport"
+			' call custom report with submitted parameters
+			If sendDebug Then
+				Call logger.LogAction("Initialize(): Calling CustomReport(notes)")
+			End If
+
+			Call CustomReport(qs, "notes")
+
+		Case "RequestorReport"
+			' call custom report with only the requestor id
+			qs = "PWayTAM=" & cookiePathwayName
+			If sendDebug Then
+				Call logger.LogAction("Initialize(): Calling CustomReport(web)")
+			End If
+			Call CustomReport(qs, "web")
+
+		Case "StatusReport"
+			' call for status display with the web user's id
+			qs = qs & "&PWayTAM=" & cookiePathwayName
+			If sendDebug Then
+				Call logger.LogAction("Initialize(): Calling StatusDisplay()")
+			End If
+
+			Call StatusDisplay(cookiePathwayName, qs, mgrAccess)
+
+	End Select
+
+Agent_Exit:
+
+	' only if enabled
+	If sendDebug Then
+		Call logger.Close()
+	End If
+
+	Exit Sub
+
+Agent_Error:
+
+	If Not sendDebug Then
+		Set logger = session.CreateLog("PathwayWebViewDisplayDirect")
+		Call logger.OpenMailLog(debugAdmin,"PATHway PathwayWebViewDisplayDirect")
+		Call logger.LogAction("Starting processing of new web report")
+		sendDebug = True
+	End If
+
+	Call logger.Logaction("Initialize(): " & Error & "(" & Err & ") on line " & Erl)
+	Call logger.Logaction(debugText)
+	Call logger.Logaction("Debug context document:")
+	ForAll itm In doc.Items
+		Call logger.Logaction("    " & itm.Name & " = [" & itm.Text & "]")
+	End ForAll
+
+	If (Err = 30000) Then
+		Resume Agent_Exit
+	End If
+
+	htmlString = |Content-Type:text/html| & NL
+	htmlString = htmlString & |<html>| & NL
+	htmlString = htmlString & |<head>| & NL
+	htmlString = htmlString & |<title>Pathway Custom Report</title>| & NL
+	htmlString = htmlString & |</head>| & NL
+	htmlString = htmlString & |<body>| & NL
+
+	htmlString = htmlString & |Initialize() error was [| & Error & |]<br>| & NL
+	htmlString = htmlString & |line was | & Erl & |<br>| & NL
+	htmlString = htmlString & debugText
+	htmlString = htmlString & |</body>| & NL
+	htmlString = htmlString & |</html>|
+	Print htmlString
+
+	Resume Agent_Exit
+
+End Sub

@@ -1,0 +1,40 @@
+%REM
+	Sub ErrorPage
+	Description: Comments for Sub
+%END REM
+Sub ErrorPage (reason As String)
+
+	Dim db As NotesDatabase
+	Dim dbPath As String
+	Dim dbServer As String
+	Dim reqURL As String
+	Dim htmlString As String
+
+	Const domain = ".dub.usoh.ibm.com"
+
+	Set session = New NotesSession
+	Set db = session.Currentdatabase
+
+	' set up default path for document links
+	dbPath = db.Filepath
+	dbServer = StrRight(StrLeft(db.Server, "/"), "CN=")
+	reqURL = "http://" & dbServer & domain & "/" & dbPath & "/PWayNav"
+
+	htmlString = |Content-Type:text/html| & NL
+	htmlString = htmlString & |<html>| & NL
+	htmlString = htmlString & |<head>| & NL
+	htmlString = htmlString & |<title>Pathway Custom Report</title>| & NL
+	htmlString = htmlString & |</head>| & NL
+	htmlString = htmlString & |<body>| & NL
+	htmlString = htmlString & |<h1>| & NL
+	htmlString = htmlString & |PATHway Error Report| & NL
+	htmlString = htmlString & |</h1><h2>| & NL
+	htmlString = htmlString & reason & NL
+	htmlString = htmlString & |</h1>| & NL
+	htmlString = htmlString & |Go to the Pathway Navigator page to log in: <a style="font-size:10pt" href="| & reqURL & |">Pathway Navigator</a><br>|
+	htmlString = htmlString & |<hr>|
+	htmlString = htmlString & |</body>| & NL
+	htmlString = htmlString & |</html>|
+	Print htmlString
+
+End Sub

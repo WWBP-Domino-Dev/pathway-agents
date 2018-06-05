@@ -1,0 +1,30 @@
+%REM
+	Function StatusRow
+	Description: Comments for Function
+%END REM
+Function StatusRow (htmlString As String, fieldLabel As String, fieldValue As String) As String
+
+	StatusRow = htmlString & |<tr>| & NL
+	StatusRow = StatusRow & |<td class="column1grey">&nbsp;</td>| & NL
+	If (Len(fieldLabel) > 0) Then
+		StatusRow = StatusRow & |<td class="column2grey">| & fieldLabel & |</td>| & NL
+	Else
+		StatusRow = StatusRow & |<td class="column2grey">&nbsp;</td>| & NL
+	End If
+	If (Len(fieldValue) > 0) Then
+		StatusRow = StatusRow & |<td>| & fieldValue & |</td></tr>| & NL
+	Else
+		StatusRow = StatusRow & |<td>&nbsp;</td></tr>| & NL
+	End If
+
+func_exit:
+	Exit function
+
+func_error:
+	StatusRow = htmlString & |<tr>| & NL
+	StatusRow = StatusRow & |<td class="column1grey">&nbsp;</td>| & NL
+	StatusRow = StatusRow & |<td class="column2grey">| & Error & | (| & Erl & |)</td>| & NL
+	StatusRow = StatusRow & |<td>'| & fieldLabel & |' '| &  fieldValue & |'</td></tr>| & NL
+	Resume func_exit
+
+End Function

@@ -1,0 +1,12 @@
+%REM
+	Function StatusSection
+	Description: Comments for Function
+%END REM
+Function StatusSection (htmlString As String, sectionLabel As String) As String
+
+	StatusSection = htmlString & |<tr>| & NL
+	StatusSection = StatusSection & |<td class="column1grey">| & sectionLabel & |</td>| & NL
+	StatusSection = StatusSection & |<td class="column2grey">&nbsp;</td>| & NL
+	StatusSection = StatusSection & |<td>&nbsp;</td></tr>| & NL
+
+End Function

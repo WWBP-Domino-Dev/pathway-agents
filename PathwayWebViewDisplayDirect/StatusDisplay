@@ -1,0 +1,374 @@
+%REM
+	Sub StatusDisplay
+	Description: Comments for Sub
+%END REM
+Sub StatusDisplay (submitter As String, queryString As String, isManager As Boolean)
+
+	%REM
+	Called via an OpenAgent URL
+
+	Creates a representation of the status doc for a single request
+
+	Sample URL:
+
+	http://<server>/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=StatusReport&ReportUser=bsmith@us.ibm.com
+
+	%END REM
+
+	Dim db As NotesDatabase
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim dt As NotesDateTime
+
+	Dim argsList As Variant
+	Dim tokenList As Variant
+	Dim x As Integer
+	Dim y As Integer
+
+	Dim tokenArray As Variant
+	Dim tokenSplit As Variant
+	Dim tokenPairs List As String
+
+	Dim qs As String
+	Dim cookieString As String
+	Dim cookiePathway As String
+	Dim search As String
+	Dim argKey As String
+	Dim argValue As String
+
+	Dim dbServer As String
+	Dim dbPath As String
+	Dim reqURL As String
+	Dim htmlString As String
+	Dim debugHeader As String
+	Dim debugText As String
+
+	Dim tempStr1 As String
+	Dim tempStr2 As String
+
+	Dim labelString As String
+	Dim labelArray As Variant
+	Dim fieldsString As String
+	Dim fieldsArray As Variant
+
+	Dim sectionLabels List As String
+
+	Const domain = ".dub.usoh.ibm.com"
+	Const YES = "Y"
+	Const NO = "N"
+
+	labelString = "Submitter," & _
+	"Submitted Date," & _
+	"Assigned Date," & _
+	"Status," & _
+	"Partner," & _
+	"Start Date," & _
+	"Duration," & _
+	"Total Revenue Opportunity," & _
+	"IBM Cloud Channel portion of Total Revenue," & _
+	"IBM Cloud Channel monthly recurring revenue," & _
+	"IBM Cloud Channel total recurring revenue for year," & _
+	"Revenue Quarter," & _
+	"Embedded Solution Agreement," & _
+	"Justification,Description," & _
+	"Skills," & _
+	"GA Date Impact," & _
+	"Competitor," & _
+	"SalesConnect Number," & _
+	"CEID," & _
+	"Provider," & _
+	"Resource," & _
+	"Provider #2," & _
+	"Provider #3," & _
+	"Priority," & _
+	"Service Type," & _
+	"Phase," & _
+	"Location," & _
+	"Person to Approach," & _
+	"Practitioners Engaged," & _
+	"Cost Recovery," & _
+	"Business Sponsor Organization," & _
+	"Business Sponsor Name," & _
+	"Country," & _
+	"GEO," & _
+	"Partner Type," & _
+	"Partner Contact,"
+
+	fieldString = "PWayTAM," & _
+	"PostedDate," & _
+	"PWayClosedDate," & _
+	"PWayStatus," & _
+	"PWayISV," & _
+	"PWayNeeded," & _
+	"PWayDuration," & _
+	"PWayRevTotal," & _
+	"PWayWebSphereRevPortion," & _
+	"PWayCloudRecurRev," & _
+	"PWayCloudRecurFirstYear," & _
+	"PWayRevQtr," & _
+	"PWayRevAslOem," & _
+	"PWayJustify," & _
+	"PWayDesc," & _
+	"PWaySkills," & _
+	"PWayGA," & _
+	"PWayCompete," & _
+	"PWaySiebelNum," & _
+	"PWayCEID," & _
+	"PWayResProvider," & _
+	"PWayResName," & _
+	"PWayResProvider2," & _
+	"PWayResName2," & _
+	"PWayPriority," & _
+	"PWayHelp," & _
+	"PWayEngPhase," & _
+	"PWayDeliver," & _
+	"PWaySkillsPerson," & _
+	"PWayPractEngaged," & _
+	"PWayRDeliver," & _
+	"PWaySponsorOrg," & _
+	"PWaySponsor," & _
+	"PWayCountry," & _
+	"PWayGEO," & _
+	"PWayPartnerType," & _
+	"PWayContact,"
+
+	labelArray = Split(labelString, ",")
+	fieldArray = Split(fieldString, ",")
+
+	sectionLabels("Partner") = "Justification Section"
+	sectionLabels("Provider") = "Provider Data"
+	sectionLabels("Priority") = "Engagement Section"
+	sectionLabels("Partner Type") = "Partner Section"
+
+	On Error GoTo Sub_Error
+
+	Set session = New NotesSession
+	Set db = session.CurrentDatabase
+
+	' set up default path for document links
+	dbPath = db.Filepath
+	dbServer = StrRight(StrLeft(db.Server, "/"), "CN=")
+
+	debugText = debugText & "starting StatusDisplay() on line 152"
+
+	If sendDebug Then
+		Call logger.LogAction("StatusDisplay()")
+	End If
+
+	' generate initial page content.  explicitly code the Content-Type so that Domino will not generate the boilerplate tags.
+	' this allows us to code a title in the header section.
+
+	htmlString = |Content-Type:text/html| & NL
+	htmlString = htmlString & |<html>| & NL
+	htmlString = htmlString & |<head>| & NL
+	htmlString = htmlString & |<title>Pathway Status Report</title>| & NL
+	htmlString = htmlString & |</head>| & NL
+	htmlString = htmlString & |<body>| & NL
+
+	debugHeader = |query string: '| & queryString & |'<br>| & NL
+
+	' initialize the search formula
+	search = {Form = "PWayData" & ! @IsAvailable(PWayEngDate)}
+
+	' 2015-01: Create a List from the Query_String values
+	'   First split the token pairs into an array
+	tokenArray = Split(queryString, "&")
+
+	' Convert each token pair into a key-value pair in a List
+	ForAll token In tokenArray
+		tokenSplit = Split(token, "=")
+		tokenPairs(tokenSplit(0)) = tokenSplit(1)
+	End ForAll
+
+	' Pull out the two required query parameters
+	requestID = tokenPairs("PWayID")
+	requestUser = tokenPairs("PWayTAM")
+
+	' If the caller is a Manager of PATHway they can see any request, otherwise the selected request must be owned by the caller
+	If (isManager) Then
+		search = search & { & PWayID=@TextToNumber("} & requestID & {")}
+	Else
+		'
+		search = search & { & PWayID=@TextToNumber("} & requestID & {") & (PWayTAM="} & requestUser & {" | PWayResName="} & requestUser & {")}
+	End If
+	If sendDebug Then
+		Call logger.LogAction("StatusDisplay(): search string is " & search)
+	End If
+
+	' & PWayID=@TextToNumber("17571") & PWayTAM="Waldo Mullins"
+	' execute database search
+	Set dc = db.Search(search, Nothing, 0)
+
+	' Error 30100, "debug exit 1"
+
+	' create in-line CSS to format table with new font size and border attributes
+	htmlString = htmlString & |<style type="text/css">| & NL
+	htmlString = htmlString & |.view {| & NL
+	htmlString = htmlString & |  font-size:0.8125em;| & NL
+	htmlString = htmlString & |  border: 1px solid gray;| & NL
+	htmlString = htmlString & |  border-collapse:collapse;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |.ibmblue {| & NL
+	htmlString = htmlString & |   background-color: #95B3DA;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |.column1grey {| & NL
+	htmlString = htmlString & |   background-color: #F0F0F0;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |.column2grey {| & NL
+	htmlString = htmlString & |   background-color: #F7F7F7;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |.headinggrey {| & NL
+	htmlString = htmlString & |   background-color: #E0E0E0;| & NL
+	htmlString = htmlString & |}| & NL
+	htmlString = htmlString & |</style>| & NL
+
+	' construct banner table
+	htmlString = htmlString & |<table width="100%" border="0">| & NL
+	htmlString = htmlString & |<tr valign="top"><td width="100%">| & NL
+	htmlString = htmlString & |<table width="100%" border="0" cellspacing="0" cellpadding="0">| & NL
+	htmlString = htmlString & |<table width="100%" border="0" cellspacing="0" cellpadding="0">| & NL
+	htmlString = htmlString & |<tr valign="top"><td class="ibmblue" height="40" width="100%"><b><font size="5">IBM Cloud PATHway Request Report</font></b></td></tr>| & NL
+	htmlString = htmlString & |</table></td></tr>	</table><br>| & NL
+
+	' Make sure something was returned.  Check here so first part of HTML page is constructed
+	If (dc.Count <> 1) Then
+		If (Len(requestID) = 0) Then
+			htmlString = htmlString & |<br><h2>Search returned | & Str(dc.Count) & | records. <br><br>The request ID was not provided in the URL, please pause before clicking 'Show Request Status'</h2>| & NL
+			If sendDebug Then
+				Call logger.LogAction("StatusDisplay(): search failure, missing request id")
+			End If
+
+			GoTo Sub_Exit
+		Else
+			htmlString = htmlString & |<br><h2>Search returned | & Str(dc.Count) & | records. <br><br>Either this request does not exist or you are not the owner</h2>| & NL
+			If sendDebug Then
+				Call logger.LogAction("StatusDisplay(): search failure, user-documents mismatch, returned " & Str(dc.Count) & " records")
+			End If
+
+			GoTo Sub_Exit
+		End If
+	End If
+
+	' retrieve the document
+	Set doc = dc.GetFirstDocument
+
+	' create link back to Navigator page.
+	htmlString = htmlString & |<a href="http://| & dbServer & domain & "/" & dbPath & |/PWayNav?OpenForm">PATHway Navigator</a><br><p>|
+
+	' create data table with column headers.
+	htmlString = htmlString & |<table class="view" border="1" cellpadding="2">| & NL
+
+	' first row with request id and column labels
+	htmlString = htmlString & |<tr>| & NL
+	htmlString = htmlString & |<td width="134" class="column1grey">Request | & doc.Getitemvalue("PWayID")(0) & |</td>| & NL
+	htmlString = htmlString & |<td width="130" class="headinggrey">Field</td>| & NL
+	htmlString = htmlString & |<td width="480" class="headinggrey">Value</td></tr>| & NL
+
+	For x = 0 To ubound(fieldArray)
+		debugText = debugHeader & |Current field is | & fieldArray(x) & |<br>|
+
+		Select Case fieldArray(x)
+			Case "PWayRevTotal"
+				tempstr2 = ""
+				If (Len(doc.Getfirstitem("PWayRevJustify").Text) > 0) Then
+					tempStr2 = " : " & doc.Getfirstitem("PWayRevJustify").Text
+				End If
+				htmlString = StatusRow(htmlString, labelArray(x), Format$(doc.Getfirstitem(fieldArray(x)).Text, "Currency") & tempStr2)
+
+			Case "PWayWebSphereRevPortion", "PWayCloudRecurRev", "PWayCloudRecurFirstYear"
+				If (doc.Hasitem(fieldArray(x))) Then
+					htmlString = StatusRow(htmlString, labelArray(x), Format$(doc.Getfirstitem(fieldArray(x)).Text, "Currency"))
+				Else
+					htmlString = StatusRow(htmlString, labelArray(x), "")
+				End If
+
+
+			Case "PWayRevAslOem"
+				tempstr1 = "No"
+				tempstr2 = ""
+				If (doc.Getfirstitem("PWayRevAslOem").Text = "1") Then
+					tempstr1 = "Yes"
+					tempstr2 = " : " & doc.Getfirstitem("PWayRevAslOemJustify").Text
+				End If
+				htmlString = StatusRow(htmlString, labelArray(x), tempstr1 & tempstr2)
+
+			Case "PWayISV"
+				htmlString = StatusSection(htmlString, "Justification Section")
+				htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+
+			Case "PWayResProvider"
+				htmlString = StatusSection(htmlString, "Provider Data")
+				If (doc.Hasitem(fieldArray(x))) Then
+					htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+				Else
+					htmlString = StatusRow(htmlString, labelArray(x), "None yet selected")
+				End If
+
+			Case "PWayPriority"
+				htmlString = StatusSection(htmlString, "Engagement Section")
+				htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+
+			Case "PWayPartnerType"
+				htmlString = StatusSection(htmlString, "Partner Section")
+				htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+
+			Case "PWayDeliver"
+				htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+				If (Len(doc.Getfirstitem("PWayAddress").Text) > 0) Then
+					htmlString = StatusRow(htmlString, "", doc.Getfirstitem("PWayAddress").Text)
+				End If
+
+			Case "PWayContact"
+				tempstr1 = " (" & doc.Getfirstitem("PWayContactNbr").Text & ")"
+				tempstr2 = doc.Getfirstitem(fieldArray(x)).Text & tempstr1
+				htmlString = StatusRow(htmlString, labelArray(x), tempstr2)
+
+			Case "PWayOtherInfo"
+				htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+
+				htmlString = htmlString & |<tr>| & NL
+				htmlString = htmlString & |<td class="column1grey">Misc Other Info</td>| & NL
+				htmlString = htmlString & |<td class="column2grey">&nbsp;</td></tr>| & NL
+				htmlString = htmlString & |<td>| & doc.Getfirstitem("PWayOtherInfo").Text & |</td></tr>| & NL
+
+			Case Else
+				' Print labelArray(x)
+
+				If (doc.Hasitem(fieldArray(x))) Then
+					htmlString = StatusRow(htmlString, labelArray(x), doc.Getfirstitem(fieldArray(x)).Text)
+				Else
+					htmlString = StatusRow(htmlString, labelArray(x), "")
+				End If
+		End Select
+	Next
+
+	' close the table
+	htmlString = htmlString & |</table>| & NL
+
+Sub_Exit:
+	htmlString = htmlString & |</body>| & NL
+	htmlString = htmlString & |</html>|
+	Print htmlString
+
+	Exit Sub
+
+Sub_Error:
+
+	If Not sendDebug Then
+		Set logger = session.CreateLog("PathwayWebViewDisplayDirect")
+		Call logger.OpenMailLog(debugAdmin,"PATHway PathwayWebViewDisplayDirect")
+		Call logger.LogAction("Starting processing of new web report")
+		sendDebug = True
+	End If
+
+	Call logger.LogAction("StatusDisplay(): " & Error & "(" & Err & ") on line " & Erl)
+	Call logger.LogAction(debugText)
+
+	htmlString = htmlString & |PathwayWebViewDisplayDirect.StatusDisplay() error was '| & Error & |',<br>| & NL
+	htmlString = htmlString & |line was | & Erl & |<br>| & NL
+	htmlString = htmlString & debugText
+	htmlString = htmlString & |<p>Contact the Systems Middleware PATHway administrator at pathway@wwbpnotesa.dub.usoh.ibm.com<br>|
+
+	Resume Sub_Exit
+
+End Sub

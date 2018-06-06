@@ -1,0 +1,131 @@
+Sub Initialize
+
+	Dim session As New NotesSession
+	Dim ws As New NotesUIWorkspace
+	Dim dbFrom As NotesDatabase
+	Dim dbTo As NotesDatabase
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+	Dim newDoc As NotesDocument
+	Dim showRef As String
+
+	Dim totCount As Long
+	Dim currCount As Long
+	Dim showCount As Long
+	Dim stopCount As Integer
+
+	Dim copyLog As NotesLog
+
+	Set copyLog = session.Createlog("Populate Test Pathway db")
+	Call copyLog.Openmaillog("owenge@us.ibm.com", "Populate Test Pathway db")
+
+
+	On Error Goto sub_error
+
+	' make sure the destination isn't production
+	Set dbTo = session.CurrentDatabase
+	If (dbTo.FileName Like "pathway.nsf*") Then
+		Msgbox "ERROR: source database is production", 48, "test db repopulate"
+		Exit Sub
+	End If
+
+	' use the local replica as a source
+	Set dbFrom = session.GetDatabase("wwbpnotesa/IBMWWBP", "Dept/WWBP/pathway.nsf")
+	If (Not dbFrom.FolderReferencesEnabled) Then
+		dbFrom.FolderReferencesEnabled = True
+	End If
+
+	' get a collection of all the documents in the destination database
+	Set dc = dbTo.AllDocuments
+	If (dc.Count = 0) Then
+		Msgbox "Destination database already empty", 48, "test db repopulate"
+	End If
+
+	' make sure the user wants to continue
+	If (ws.Prompt(PROMPT_YESNO, "Load copy of production database", "Okay to replace all documents in " & dbTo.FilePath & " with those from " & dbFrom.FilePath & "?")) Then
+		If (dc.Count > 0) Then
+			Call dc.RemoveAll(True)
+		End If
+	Else
+		Msgbox "aborting document deletion", 48, "test db repopulate"
+		Exit Sub
+	End If
+
+addDocs:
+
+	On Error GoTo sub_docerror
+
+	' reset the collection to get the set from the production source database
+	Set dc = Nothing
+	Set dc = dbFrom.AllDocuments
+	If (dc.Count = 0) Then
+		Msgbox "search failed for source db", 48, "test db repopulate"
+		Exit Sub
+	End If
+	totCount = dc.Count
+
+	' copy every document, showing the count every 1,000 documents
+	currCount = 0
+	showCount = 0
+	stopCount = 0
+	Set doc = dc.GetFirstDocument
+	Do Until doc Is Nothing
+		Set newDoc = doc.CopyToDatabase(dbTo)
+		Forall ref In doc.FolderReferences
+			showRef = ref
+			If (Len(ref) > 0) Then
+				Call newDoc.PutInFolder(ref)
+			End If
+		End Forall
+
+NextDoc:
+		currCount = currCount + 1
+		showCount = showCount + 1
+		stopCount = stopCount + 1
+		If (showCount >= 50) Then
+			Print currCount & " / " & totCount
+			showCount = 0
+		End If
+
+		'If (stopCount > 1000) Then
+		'	If (ws.Prompt(PROMPT_YESNO, "Load copy of production database", "Stop loading process?")) Then
+		'		Error 9000, "Selected end of loading"
+		'	End If
+		'	stopCount = 0
+		'End If
+
+		Set doc = dc.GetNextDocument(doc)
+	Loop
+
+sub_exit:
+	Call copyLog.Close()
+
+	Exit Sub
+
+sub_error:
+	Call copyLog.Logerror(Err, Error)
+
+	' Msgbox Error & " (" & Err & ") on line " & Erl, 48, "Test Repopulate"
+
+	If (Err = 4000) Then
+		Resume addDocs
+	End If
+
+	Resume sub_exit
+
+sub_docerror:
+	If (doc Is Nothing) Then
+		Call copyLog.Logerror(Err, Error)
+		'MsgBox Error & " (" & Err & ") on line " & Erl, 48, "Test Repopulate"
+	Else
+		Call copyLog.Logerror(Err, Error & " for doc " & doc.PWayID(0))
+		'MsgBox Error & " (" & Err & ") on line " & Erl & ".  [" & doc.PWayID(0) & "]  " & currCount & " of " & totCount, 48, "Test Repopulate"
+	End If
+
+	If (Err = 4005 Or Err = 1028) Then
+		Resume NextDoc
+	End If
+
+	Resume sub_exit
+
+End Sub

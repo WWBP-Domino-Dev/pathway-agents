@@ -1,0 +1,95 @@
+Sub Initialize
+	Dim session As New NotesSession
+	Dim db As NotesDatabase
+	Dim ws As New NotesUIWorkspace
+	Dim dc As NotesDocumentCollection
+	Dim doc As NotesDocument
+
+	Dim search1 As String
+	Dim search2 As String
+	Dim temp As String
+	Dim char As String
+	Dim oldName As Variant
+	Dim newName As Variant
+	Dim reply As Variant
+	Dim count As Integer
+	Dim charValue As Long
+
+	On Error GoTo sub_error
+
+	oldName = ws.Prompt(PROMPT_OKCANCELEDIT, "Resource Name Refactor", "Enter name to be changed")
+	If (Len(oldName) = 0) Then
+		Exit sub
+	End If
+	newName = ws.Prompt(PROMPT_OKCANCELEDIT, "Resource Name Refactor", "Enter name replacement value")
+	If (Len(newName) = 0) Then
+		Exit Sub
+	End If
+
+	search1 = {Form = "PWayData"}
+	search2 = {Form = "PWayData" & PWayResName = "} + oldName + {"}
+	search2 = {Form = "PWayData" & @Like(PWayResName;"} + oldName + {") = 1}
+
+	Set db = session.Currentdatabase
+
+	' first replace all names that are prefixed with a space
+
+	Set dc = db.Search(search1, Nothing, 0)
+	' Set doc = dc.Getfirstdocument()
+	Set doc = Nothing
+
+	Do Until doc Is Nothing
+
+		temp = doc.getitemvalue("PWayResName")(0)
+
+		If (Len(temp) > 0) Then
+			char = Left$(temp, 1)
+			charValue = Asc(char)
+			If ((charValue = 32 or charValue > 122)) Then
+				Print "trimming " + temp
+				temp = Right$(temp, Len(temp) - 1)
+				Call doc.Replaceitemvalue("PWayResName", temp)
+				Call doc.Save(True, False)
+			End If
+		End If
+
+		Set doc = dc.Getnextdocument(doc)
+	Loop
+
+	' then replace all names with provided alternatives
+	Set dc = db.Search(search2, Nothing, 0)
+	Set doc = dc.Getfirstdocument()
+
+	If (dc.count > 0) Then
+		reply = ws.Prompt(PROMPT_YESNO, "Resource Name Refactor", "Name value '" + oldName + "' will be globally changed to '" + newName + "', " + Str(dc.Count) + " documents")
+	Else
+		reply = ws.Prompt(PROMPT_OK, "Resource Name Refactor", "No matches found ")
+		Exit sub
+	End If
+
+	If (reply = 0) Then
+		Exit Sub
+	End If
+
+	count = 0
+	Do Until doc Is Nothing
+		Call doc.Replaceitemvalue("PWayResName", newName)
+		Call doc.Save(true, false, false)
+		count = count + 1
+		Set doc = dc.Getnextdocument(doc)
+	Loop
+
+	Print("Updated " + Str(count) + " records")
+	Sleep 4
+
+sub_exit:
+	Exit Sub
+
+sub_error:
+	reply = ws.Prompt(PROMPT_OK, "Resource Name Refactor", "doc " & Str(count) & ": " & Error & " on line " & Erl)
+	reply = ws.Prompt(PROMPT_OK, "Resource Name Refactor", doc.Getitemvalue("PWayID")(0))
+
+	Sleep 4
+	GoTo sub_exit
+
+End Sub

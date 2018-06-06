@@ -1,0 +1,80 @@
+Sub BuildMimeBody (doc As NotesDocument, docReply As NotesDocument)
+%REM
+	Build the body of the response email as a MIME document with data
+	from the original request document.
+%END REM
+	Dim body As NotesMIMEEntity
+	Dim header As NotesMIMEHeader
+
+	Dim stream As NotesStream
+
+	Dim nBreak As Integer
+	Dim nTruncate As Integer
+
+	On Error Goto Sub_Error
+
+	' Creating a MIME object requires a stream object to start with
+	Set stream = session.CreateStream
+	Set body = docReply.CreateMIMEEntity
+
+	' build the various mail fields as headers in the MIME object
+	Set header = body.CreateHeader("Subject")
+	Call header.SetHeaderVal("Re:  " & doc.GetItemValue("Subject")(0))
+
+	Set header = body.CreateHeader("To")
+	Call header.SetHeaderVal(doc.GetItemValue("PWayAddr")(0))
+
+	' Force the return email address
+	Set header = body.CreateHeader("Sender")
+	Call header.SetHeaderVal("IBM Cloud PATHway <" & PathwayInternetMail & ">")
+	Set header = body.CreateHeader("Principal")
+	Call header.SetHeaderVal("IBM Cloud PATHway <" & PathwayInternetMail & ">")
+	Set header = body.CreateHeader("From")
+	Call header.SetHeaderVal("IBM Cloud PATHway <" & PathwayInternetMail & ">")
+
+	' Build the structure body
+	Call stream.WriteText(|<HTML>|)
+	Call stream.WriteText(|<BODY>|)
+	Call stream.WriteText(|<font size="2">|)
+
+	' 9-19-2017 <<<<
+	' add new OOO text if present
+	If (oooFlag) Then
+		Call stream.WriteText("<br>" & oooMsg & "<br><hr><br>")
+	End If
+	' 9-19-2017 >>>>
+
+	Call stream.WriteText("<br><br>Your web request created ")
+	Call stream.WriteText(doc.Created)
+	Call stream.WriteText(" has been received.  You will be notified again once it has been processed by the PATHway administrator.")
+
+	Call stream.WriteText("<br><br>")
+	Call stream.WriteText("Partner: ")
+	Call stream.WriteText(doc.Getitemvalue("PWayISV")(0))
+	Call stream.WriteText("<br>")
+	Call stream.WriteText("Service Type: ")
+	Call stream.WriteText(doc.Getitemvalue("PWayHelp")(0))
+	Call stream.WriteText("<br>")
+	Call stream.WriteText("Duration: ")
+	Call stream.WriteText(doc.Getitemvalue("PWayDuration")(0) & " hours")
+	Call stream.WriteText("<br>")
+	Call stream.WriteText("Date Needed: ")
+	Call stream.WriteText(doc.Getitemvalue("PWayNeeded")(0))
+	Call stream.WriteText("<br>")
+	Call stream.WriteText("Description: ")
+	Call stream.WriteText(doc.Getitemvalue("PWayDesc")(0))
+
+	Call stream.WriteText(|</font>|)
+	Call stream.WriteText(|</BODY>|)
+	Call stream.WriteText(|</HTML>|)
+
+	Call body.SetContentFromText(stream, "text/html", ENC_QUOTED_PRINTABLE)
+
+Sub_Exit:
+	Exit Sub
+
+Sub_Error:
+	Call debugLog.Logaction("BuildMimeBody: " & Error & "(" & Err & ")" & " on line " & Erl)
+	Call debugLog.Logaction("The oooMsg string = '" & oooMsg & "'")
+	Call AddToStackTrace()
+End Sub

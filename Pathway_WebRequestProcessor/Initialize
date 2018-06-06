@@ -1,0 +1,437 @@
+Sub Initialize
+%REM
+
+SUMMARY
+Look for new documents in the database.  Move to the Inbox if contains the web template field "PWayWebReq" or "PWayWebSurvey"
+
+If attachments are included they will be part of the document, not in a field.  Look for attachments and move them to
+a new RT field so they are visible in the status doc.
+
+HISTORY
+9/24/2009
+In order to migrate to a new server a temporary test will be in place to look for email templates that are sent after the transition.
+
+9/2/2009
+Copied from the PSN PATHway database.
+
+11/2/2009
+Added call to BluePages API to convert the internet address used in the web form to the Notes address.  This will be used as the
+SendTo value by the PathwayProcessTemplate routine when constructing the reply document.
+
+7/9/2012
+Updated BluePages code block to do a fuzzy search for the name if the email address was not matched.
+If the name returns no entries (unlikely) then use the requestor's name and entered email address.
+%END REM
+
+	Dim dc As NotesDocumentCollection
+	Dim view As NotesView
+	Dim doc As NotesDocument
+	Dim docReply As NotesDocument
+	Dim docProfile As NotesDocument
+	Dim docCal As NotesDocument
+	Dim docOut As NotesDocument
+	Dim rt As NotesRichTextItem
+	Dim rtNav As NotesRichTextNavigator
+	Dim dt As NotesDateTime
+	Dim testDate As NotesDateTime
+	Dim thisDate As NotesDateTime
+	Dim nameConv As NotesName
+
+
+	Dim bpd As BluePages
+	Dim coll As BPResults
+	Dim locatorURL As String
+	Dim dbProfileDoc As NotesDocument
+	Dim dbProfileView As NotesView
+
+	Dim auditLog As NotesLog
+	Dim newSubject As String
+	Dim temp As String
+	Dim tempDir As String
+	Dim logRequest As String
+	Dim formName As String
+
+	Dim nCount As Double
+	Dim iDate As Double
+	Dim startDT As Double
+	Dim endDT As Double
+
+	Dim af As Variant
+	Dim obj As Variant
+	Dim debug As Boolean
+	Dim bRequest As Boolean
+	Dim bFollowup As Boolean
+	Dim bBluePages As Boolean
+
+	Const newLine = {
+}
+
+	' Const WebURL = "http://pghnotes6a.pgh.ibm.com/Dept/WCC/pathway.nsf/PWayReqTemplate?OpenForm"
+
+	On Error Goto Agent_Error
+
+	Set db = session.CurrentDatabase
+
+	' Refer to global profile document to turn on debugging reporting
+	Set view = db.GetView(v_PROFILE)
+	If (view.EntryCount > 0) Then
+		Set docProfile = view.GetFirstDocument
+		If (docProfile.Getfirstitem("WebReqProcessDebug").Text = "1") Then
+			debug = True
+		End If
+	End If
+
+	If debug Then
+		Set debugLog = session.CreateLog("WebRequestProcessor")
+		Call debugLog.OpenMailLog("owenge@us.ibm.com","PATHway WebRequestProcessor")
+		Call debugLog.LogAction("Starting processing of new documents")
+	End If
+
+	' Open audit log
+	Set auditLog = session.CreateLog("WebRequestProcessor")
+	Call auditLog.Opennoteslog(ProdServer, ProdPath & "pathway_audit_log.nsf")
+
+	Set thisDate = New NotesDateTime("Today")
+
+	' 9-19-2017 <<<<
+	' add OutOfOffice logic to database.  Bypassed built-in function to make it accessible to multiple PATHway users.
+	' also, needed to access the values in other agents, like this one.
+	Set docCal = db.GetProfileDocument("CalendarProfile")
+	Set docOut = db.GetProfileDocument("OutOfOfficeProfile")
+
+	oooFlag = False
+	' make sure the date values are non-null before testing
+	If (Len(docOut.GetFirstItem("PW_OOO_Start").Text) > 0 And Len(docOut.GetFirstItem("PW_OOO_End").Text) > 0) Then
+		' test the current date against the range of the OOO dates
+		If (thisDate.Timedifference(docOut.GetFirstItem("PW_OOO_Start").DateTimeValue) >= 0 And thisDate.Timedifference(docOut.GetFirstItem("PW_OOO_End").DateTimeValue) <= 0) Then
+			oooMsg = "Note: The PATHway administrator is currently out of the office.  " & docOut.GetFirstItem("PW_OOO_Text").Text
+			oooFlag = True
+
+			If debug Then
+				Call debugLog.LogAction("Setting OOO flag and message to '" & oooMsg & "'")
+			End If
+		End If
+	End If
+	' 9-19-2017 >>>>
+
+	Set dt = docProfile.GetFirstItem("PWayTransition").DateTimeValue
+
+	' initialize BluePages access
+	Set bpd = New BluePages(docProfile.APILocator(0))
+
+	If Not bpd.IsOpen() Or bpd.GetReturnCode() <> 0 Then
+		Error 30240, "Failed to open BluePages connection: " & bpd.GetErrorMessage()
+	End If
+
+	' set up temp directory for holding any attachments
+	If (session.Platform Like "Win*") Then
+		' try to locate the user's temp directory
+		If (Environ$("tmp") <> "") Then
+			tempdir = Environ$("tmp") & "\"
+		Else
+			tempdir = Environ$("temp") & "\"
+		End If
+	Else
+		If (session.Platform = "UNIX" Or session.Platform = "Linux") Then
+			tempdir = "/tmp/"
+		End If
+	End If
+
+	nCount = 0
+	' retrieve set of unprocessed docs
+	Set dc = db.UnprocessedDocuments
+	If dc.Count > 0 Then
+		Set doc = dc.GetFirstDocument
+
+		Do Until doc Is Nothing
+
+			nCount = nCount + 1
+
+			' identify the doc
+			bRequest = False
+			bFollowup = False
+			If (doc.HasItem("PWayWebReq")) Then
+				Call doc.RemoveItem("PWayWebReq")
+				bRequest = True
+			End If
+			If (doc.HasItem("PWayMobilebReq")) Then
+				Call doc.RemoveItem("PWayMobileReq")
+				bRequest = True
+			End If
+			If (doc.HasItem("PWayWebSurvey")) Then
+				Call doc.RemoveItem("PWayWebSurvey")
+				bFollowup = True
+			End If
+
+			If (doc.Hasitem("Form")) Then
+				Set dt = New NotesDateTime(doc.Created)
+
+				If debug Then
+					Call debugLog.LogAction(Str(nCount) & "==>" & "Process '" & doc.Getfirstitem("Form").Text & "' from "  & dt.Dateonly)
+				End If
+
+			End If
+
+			' process if it's one of the web forms
+			If (bRequest Or bFollowup) Then
+
+				If debug Then
+					Call debugLog.LogAction("  Found valid web form")
+				End If
+
+				' the request form has additional fields which need processed
+				If (bRequest) Then
+					Call auditLog.Logaction("New request time: " & doc.Created)
+
+					' convert the starting date from text to a Date/Time object
+					temp = doc.GetFirstItem("PWayNeeded").Text
+					Set dt = New NotesDateTime(temp)
+					Call doc.ReplaceItemValue("PWayNeeded", dt)
+
+					' 4/13/2016
+					' the PWayNewISV field contains the name of the partner entered by the user.
+					' either the partner is new or the name in the provided list is not correct.
+					If (doc.Hasitem("PWayNewISV")) Then
+						If (doc.GetFirstItem("PWayNewISV").Text <> "") Then
+							Call doc.Replaceitemvalue("PWayISV", doc.GetFirstItem("PWayNewISV").Text)
+							Call doc.Removeitem("PWayNewISV")
+						End If
+					End If
+
+					' 10/18/2010
+					' the PWayTamNew field contains the name of the submitter entered by the user.
+					' either the user is new or their name in the provided list is not correct.
+					If (doc.Hasitem("PWayTamNew")) Then
+						If (doc.GetFirstItem("PWayTamNew").Text <> "") Then
+							Call doc.Replaceitemvalue("PWayTam", doc.GetFirstItem("PWayTamNew").Text)
+							Call doc.Removeitem("PWayTamNew")
+						End If
+					End If
+
+					' 10/18/2010
+					' the PWayAddrNew field contains the address of the submitter entered by the user.
+					' either the user is new or their address in the provided list is not correct.
+					If (doc.Hasitem("PWayAddrNew")) Then
+						If (doc.GetFirstItem("PWayAddrNew").Text <> "") Then
+							Call doc.Replaceitemvalue("PWayAddr", doc.GetFirstItem("PWayAddrNew").Text)
+							Call doc.Removeitem("PWayAddrNew")
+						End If
+					End If
+
+					' search for the BluePages entry in order to retrieve the Notes address
+					bBluePages = False
+					Set coll = bpd.GetPersonsByInternetAddr(doc.GetFirstItem("PWayAddr").Text)
+					If (coll.succeeded()) Then
+						If (coll.rows() > 0) Then
+							' use the Notes address if found
+							Call doc.ReplaceItemValue("From", coll.GetColumn("EMAILADDRESS"))
+							bBluePages = True
+						Else
+							' if no matches based on the internet address, try a fuzzy search with the name
+							Set coll = bpd.GetPersonsByNameFuzzy(doc.GetFirstItem("PWayTAM").Text)
+							If (coll.succeeded()) Then
+								If (coll.rows() > 0) Then
+									' use the Notes address if found
+									Call doc.ReplaceItemValue("From", coll.GetColumn("EMAILADDRESS"))
+									bBluePages = True
+								End If
+							End If
+						End If
+					End If
+
+					' no match was found, fallback to the original values
+					If Not (bBluePages) Then
+						Call doc.ReplaceItemValue("From", doc.GetFirstItem("PWayTAM").Text & " (" & doc.GetFirstItem("PWayAddr").Text & ")")
+					End If
+
+					Call auditLog.Logaction("..New request doc id: " & doc.Universalid )
+					Call auditLog.Logaction("..New request user: " & doc.GetFirstItem("PWayTAM").Text)
+					Call auditLog.Logaction("..New request email: " & doc.GetFirstItem("PWayAddr").Text)
+					Call auditLog.Logaction("..New request Notes address: " & doc.GetFirstItem("From").Text)
+
+					' pull out all the PWay* fields and add them to the audit log
+					logRequest = "..FieldList: "
+					ForAll itm In doc.Items
+						If (itm.Name Like "PWay*") Then
+							If (itm.Name <> "PWayPassword") Then
+								logRequest = logRequest & itm.Name & " = " & doc.Getfirstitem(itm.Name).Text & " | " & newline
+							End If
+						End If
+					End ForAll
+
+					Call auditLog.Logaction(logRequest)
+				End If
+
+				' for both forms, look for attachments.  save them in RT field PWayAttachments
+				If (doc.HasEmbedded) Then
+
+					' get the first (and only) attachment and save it into the default temp directory
+					af = Evaluate("@AttachmentNames", doc)
+					If debug Then
+						Call debugLog.LogAction("  found attachment " & af(0))
+					End If
+
+					Set obj = doc.GetAttachment(af(0))
+					temp = tempDir & af(0)
+
+					If debug Then
+						Call debugLog.LogAction("  about to save attachment in " & temp)
+					End If
+
+					If (Len(tempdir) > 1) Then
+						obj.ExtractFile(temp)
+
+						If debug Then
+							Call debugLog.LogAction("saved attachment in " & temp)
+						End If
+
+						' create new RT item and embed the saved attachment
+						If (doc.HasItem("PWayAttachments")) Then
+							Call doc.RemoveItem("PWayAttachments")
+						End If
+						Set rt = doc.CreateRichTextItem("PWayAttachments")
+						Call rt.EmbedObject(EMBED_ATTACHMENT, "", temp)
+					End If
+				End If
+
+				' save updated file
+				Call doc.Save(True, False)
+
+				' always move to the Inbox
+				Call doc.PutInFolder("($Inbox)")
+
+				If debug Then
+					Call debugLog.LogAction("  saved and moved doc to Inbox")
+				End If
+
+				' send a reply to the requestor noting acceptance of web request.
+				' send it as MIME text so the Principal will be set correctly
+				If (bRequest) Then
+
+					If debug Then
+						Call debugLog.LogAction("  send request auto-reply to " & doc.GetFirstItem("PWayAddr").Text)
+					End If
+
+					Set docReply = db.CreateDocument
+					Call docReply.AppendItemValue("Form", "Memo")
+
+					session.ConvertMIME = False ' Do not convert MIME to rich text
+					Call BuildMimeBody(doc, docReply)
+
+					Call SendTheDoc(docReply)
+
+					session.ConvertMIME = True ' Restore MIME conversion flag
+				End If
+				' mark the doc so we don't see it again
+				Call session.UpdateProcessedDoc(doc)
+
+			Else
+				' 9-19-2017 <<<<
+				If (doc.Hasitem("Form")) Then
+					formName = doc.Getfirstitem("Form").Text
+					If (formName = "Memo" Or formName = "Reply" Or formName = "Reply With History") Then
+
+						If debug Then
+							Call debugLog.LogAction("  email")
+						End If
+
+						If (doc.Hasitem("From")) Then
+
+							If debug Then
+								Call debugLog.LogAction("    From " & doc.Getfirstitem("From").Text)
+							End If
+
+							Set testDate = New NotesDateTime(doc.Created)
+
+							If (oooFlag And testDate.Timedifference(docOut.GetFirstItem("PW_OOO_Start").DateTimeValue) >= 0) Then
+
+								If debug Then
+									Call debugLog.LogAction("Add OOO")
+								End If
+
+								Set docReply = doc.Createreplymessage(False)
+
+								Call docReply.Removeitem("Body")
+								Set rt = docReply.Createrichtextitem("Body")
+
+								Call rt.Addnewline(1, False)
+								Call rt.Appendtext("Do not reply to this message")
+								Call rt.Addnewline(2, True)
+								Call rt.Appendtext(oooMsg)
+								Call rt.Addnewline(1, False)
+								Call rt.Appendtext("=============================================================================")
+								Call rt.Addnewline(2, True)
+
+								Call rt.Appendrtitem(doc.Getfirstitem("Body"))
+
+								' Sending mail from an agent requires an internet address since the server's
+								' address book will not have anyone's Notes address included.  But, not all
+								' documents will have an InetForm field either.
+								Set nameConv = New NotesName(doc.Getfirstitem("From").Text)
+								If (nameConv.Ishierarchical) Then
+									If (doc.Hasitem("INetFrom")) Then
+										Call docReply.Replaceitemvalue("SendTo", doc.Getfirstitem("INetFrom").Text)
+									Else
+										Call docReply.Replaceitemvalue("SendTo", "NoNameFound/Manor/SpringHillLane")
+									End If
+								Else
+									Call docReply.Replaceitemvalue("SendTo", doc.Getfirstitem("From").Text)
+								End If
+
+								Call docReply.Replaceitemvalue("Subject", doc.Getfirstitem("Subject").Text)
+								Call docReply.replaceitemvalue("From", "IBM Cloud PATHway <" & PathwayInternetMail & ">")
+								Call docReply.replaceitemvalue("Principal", "IBM Cloud PATHway <" & PathwayInternetMail & ">")
+
+								If debug Then
+									Call debugLog.LogAction("Send auto-reply to " & docReply.Getfirstitem("SendTo").Text)
+								End If
+
+								Call docReply.Send(False)
+							End If
+							' end - If (oooFlag)
+						End If
+						' If (doc.Hasitem("From"))
+					End If
+					' end - If (doc.Getfirstitem("Form").Text = "Memo" Or doc.Getfirstitem("Form").Text = "Reply")
+				End If
+				' end - If (doc.Hasitem("Form"))
+				' 9-19-2017 >>>>
+				Call session.UpdateProcessedDoc(doc)
+			End If
+			' end - If (bRequest Or bFollowup)
+NextDoc:
+			Set doc = dc.GetNextDocument(doc)
+		Loop
+	End If
+
+Agent_Exit:
+	If debug Then
+		Call debugLog.Close
+	End If
+
+	Call auditLog.Close
+
+	Exit Sub
+
+Agent_Error:
+
+	If debug Then
+		Call debugLog.LogAction(Error & " (" & Err & "), line " & Erl)
+		If (Err = 4294 Or Err = 91) Then
+			Call debugLog.LogAction(Str(nCount) & " ==> Mail failure in docReply to " & docReply.Getfirstitem("SendTo").Text)
+			ForAll itm1 In doc.items
+				If (itm1.Name <> "Body") Then
+					Call debugLog.LogAction("  Item " & itm1.Name & " = '" & itm1.Text & "'")
+				End If
+			End ForAll
+			Resume NextDoc
+		End If
+	End If
+
+	If (Err = 4294 Or Err = 91) Then
+		Resume NextDoc
+	End If
+
+	Resume Agent_Exit
+
+End Sub

@@ -1,0 +1,8 @@
+%REM
+	Agent Pathway Archive Caller
+	Created Jul 31, 2015 by George Owen/Pittsburgh/IBM
+	Description: Call routine PathwayDatabaseArchive() in script library PathwayLocal.
+%END REM
+Option Public
+Option Declare
+Use "PathwayLocal"

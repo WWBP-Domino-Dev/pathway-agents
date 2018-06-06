@@ -1,0 +1,170 @@
+Sub Initialize
+
+%REM
+Functional Summary:
+After the engagement is complete, as determined by the calculated end date,
+this agent will send a followup message to the requestor with a link to a survey web page
+
+Code Summary;
+	Search the special view which only shows requests ended in the last week
+	Extract the request number from the body of the document
+	Locate the corresponding status document
+	Create MIME email with customized URL link to the survey page
+	Call subroutine to send the email in order to better handle exceptions resulting from invalid email addresses
+%END REM
+
+	Dim vwc As NotesViewEntryCollection
+	Dim vwe As NotesViewEntry
+	Dim vw As NotesView
+	Dim surveyDate As NotesDateTime
+
+	Dim docProfile As NotesDocument
+	Dim errLog As NotesLog
+	Dim agentLog As NotesLog
+	Dim nameObj As NotesName
+
+	Dim nl As String
+	Dim sArgs1 As String
+	Dim sArgs2 As String
+	Dim search As String
+	Dim sTo As String
+	Dim sDate As String
+	Dim sBody As String
+	Dim SendList() As String
+
+	Dim nStart  As Integer
+	Dim nEnd As Integer
+	Dim nErr As Integer
+	Dim nSurveys As Integer
+
+	Dim bError As Boolean
+
+	nErr = False
+	nl = Chr(10) & Chr(13)
+	sRR = "default"
+	bError = False
+
+	On Error Goto Agent_Error
+
+	Set agentLog = New NotesLog("Agent PATHwayWebFollowupEnhanced")
+	Call agentLog.Openagentlog()
+
+
+	' extract global database signature text
+	Set docProfile = db.GetProfileDocument("CalendarProfile")
+	sSig = docProfile.GetFirstItem("Signature").Text
+
+	' get collection of relevant status documents
+	Set vw = db.GetView("Pathway Followup Search")
+	Set vwc = vw.AllEntries
+
+	Call agentLog.Logaction("Number of entries in the Followup view: " & Str(vwc.Count))
+
+	Set vwe = vwc.GetFirstEntry
+
+	' loop through the status documents
+	session.ConvertMIME = False ' Do not convert MIME to rich text
+	Do Until vwe Is Nothing
+		Set docStatus = vwe.Document
+
+		' this should never occur, but there could be an old request without this field
+		If Not (docStatus.HasItem("PWayEndNeeded")) Then
+			Goto NextEntry
+		End If
+		If (docStatus.GetFirstItem("PWayEndNeeded").Text = "") Then
+			Goto NextEntry
+		End If
+
+		' extract the request ID
+		sRR = docStatus.GetFirstItem("PWayID").Text
+		Call agentLog.Logaction("processing request: " & sRR)
+
+		' if the requestor is pathway, skip it.  this was probably a batch request.
+		If (docStatus.GetItemValue("PWayAddr")(0) = PathwayInternetMail) Then
+			Goto NextEntry
+		End If
+
+		' create notification document
+		Set docSend = db.CreateDocument
+		Call docSend.ReplaceItemValue("Form", "Memo")
+
+		' ======================
+		' initialize the survey text array
+		Call PathwayFollowupText
+
+		' first, build the basic assignment data: "<resource> assigned to <ISV> from <start-date> to <end-date>"
+		FollowupText(1) = {<font size="2" color="#800000">} & docStatus.GetItemValue("PWayResName")(0) & " assigned to " & docStatus.GetFirstItem("PWayIsv").Text &  _
+		" from " & docStatus.GetFirstItem("PWayNeeded").Text & " to " & _
+		docStatus.GetFirstItem("PWayEndNeeded").DateTimeValue.DateOnly & "</font>."
+
+		' identify the assigned resources and funding manager (if relevant)
+		nCount = 0
+		FollowupText(3) = ""
+		Forall resname In docStatus.GetItemValue("PWayResName")
+			FollowupText(3) = FollowupText(3) & resname & " and "
+			nCount = nCount + 1
+		End Forall
+		FollowupText(3) = Left$(FollowupText(3), Len(FollowupText(3)) - 5)
+
+		If (docStatus.GetItemValue("PWayFundMgr")(0) <> "") Then
+			FollowupText(5) = "(" & docStatus.GetItemValue("PWayFundMgr")(0) & ") "
+		End If
+
+		' customize the base URL with additional parameters
+		sDesc = docStatus.GetItemValue("PWayDesc")(0)
+		If (Len(sDesc) > 200) Then
+			nStart = Instr(200, sDesc, " ")
+			sDesc = Left(sDesc, nStart) & " . . ."
+		End If
+
+		%REM
+
+		' July 18, 2016: Survey questions removed
+		FollowupText(8) = FollowupText(8) & "&PWayAddr=" & docStatus.GetItemValue("PWayAddr")(0) & "&PWayID=n" & sRR &  "&PWayISV=" & docStatus.GetItemValue("PWayISV")(0) & "&PWayDesc=" & sDesc
+
+		%END REM
+
+		' go build the MIME-format email body
+		Call BuildMimeBody
+
+		' send the email
+		Call SendTheDoc(docSend)
+
+		' reinit the doc object
+		Set docSend = Nothing
+
+		' update status doc with survey history
+		Set surveyDate = New NotesDateTime(Today)
+		Call docStatus.ReplaceItemValue("PWaySurvey", 1)
+		Call docStatus.ReplaceItemValue("PWaySurveyDate", surveyDate)
+		If (docStatus.HasItem("PWaySurveyCount")) Then
+			If (Len(docStatus.GetFirstItem("PWaySurveyCount").Text) = 0) Then
+				Call docStatus.ReplaceItemValue("PWaySurveyCount", 1)
+			Else
+				nSurveys = docStatus.GetItemValue("PWaySurveyCount")(0) + 1
+				Call docStatus.ReplaceItemValue("PWaySurveyCount", nSurveys)
+			End If
+		Else
+			Call docStatus.ReplaceItemValue("PWaySurveyCount", 1)
+		End If
+		Call docStatus.Save(True, True)
+
+NextEntry:
+		Set vwe = vwc.GetNextEntry(vwe)
+	Loop
+
+Agent_Exit:
+	session.ConvertMIME = True ' Do not convert MIME to rich text
+	Exit Sub
+
+Agent_Error:
+	Set errLog = New NotesLog("PATHwayFollowup agent")
+	Call errLog.OpenMailLog(ADMIN_SENDTO, "PATHWAY agent Survey errors for " & sRR)
+	Call errLog.LogAction("Mail failure")
+	Call errLog.Logerror(Err, sRR & ": " & Error & " on line " & Erl)
+	Call errLog.Close
+
+	Call LogError()
+	Resume Agent_Exit
+
+End Sub

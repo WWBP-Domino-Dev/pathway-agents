@@ -1,0 +1,155 @@
+Sub Initialize
+
+%REM
+Functional Summary:
+A number of views have date calculations in the columns.   The forms have fields which calculate
+the actual values.  Since they are based on the current date, this agent will recompute the values
+so they can be used directly in the column formulas.   This is being done in response to IBM corporate
+guidelines regarding Notes database design recommendations.
+
+Code Summary:
+1. Database search for all Memo or Reply documents
+2. Process document collection, bypassing any document not in the Inbox and not
+    containing a valid RR number
+3. Check for WAIT-CLOSED status.  If found, increment field PWayWaitClosed.
+4. Recompute form fields
+
+History:
+
+11/13/2003:
+If the Inbox isn't kept clean, there could be multiple documents for the same request.
+Make this a two-pass process, with the first pass creating a hash of documents from the
+Inbox which will hide any duplicates.   The second pass now just processes the hash
+entries instead of the Inbox entries.
+
+5/8/2003:
+The PATHway team needs to adjust the Days-To-Close calculation.  Apparently, the request can be
+put into a WAIT-CLOSED state for an extended period of time.   This indicates pending action on the
+part of some other team.   Therefore, it skews the Days-To-Close value, since some portion of that time
+was spent waiting on another group.  This change will access the status document for each valid
+Inbox document and increment a new field if the status is WAIT-CLOSED.  This value will then be
+subtracted in the view calculations when showing the Days-To-Close value.
+
+%END REM
+
+	Dim cd As NotesDocumentCollection
+	Dim docStatus As NotesDocument
+	Dim vw As NotesView
+	Dim vwe As NotesViewEntry
+	Dim rt As NotesRichTextItem
+	Dim errLog As NotesLog
+
+
+	Dim subject As String
+	Dim search As String
+	Dim sStatus As String
+	Dim sUnid As String
+	Dim sReq As String
+	Dim fm As String
+	Dim sErrText As String
+
+	Dim aMemoList List As NotesDocument
+	Dim aStatusList List As NotesDocument
+
+	Dim nRC As Integer
+	Dim nCount As Integer
+	Dim nMoved As Integer
+	Dim nErr As Integer
+	Dim id As Variant
+
+	Const BAD_UNID = 4091
+
+	On Error Goto Agent_Error
+
+	nErr = False
+	Set errLog = New NotesLog("PATHwayDocumentRecompute agent")
+	Call errLog.OpenAgentLog()
+
+	Set vw = db.GetView("($Inbox)")
+
+	' 11/13/2003
+	' build hash of request id numbers to prevent duplication.
+	' only use mail documents with valid request numbers.
+	Set doc = vw.GetFirstDocument
+	Do Until doc Is Nothing
+		' first get rid of non-mail documents
+		fm = doc.Form(0)
+		If (Not (fm Like "Memo" Or fm Like "Reply*")) Then
+			Goto NextDoc
+		End If
+
+		' try to extract the request number
+		If (doc.HasItem("PWayUNID")) Then
+			sUnid = doc.GetItemValue("PWayUNID")(0)
+		Else
+			sUnid = PathwayFindRR(doc)
+		End If
+		If (sUnid = "") Then
+			Error BAD_UNID, "No valid PWayUNID field value"
+		End If
+
+		Set docStatus = db.GetDocumentByUNID(sUnid)
+		id = docStatus.GetItemValue("PWayID")(0)
+
+		' always make sure default values are set
+		Call doc.ReplaceItemValue("PWayID", id)
+		Call doc.ReplaceItemValue("PWayUNID", sUnid)
+		sStatus = docStatus.GetItemValue("PWayStatus")(0)
+		Call doc.ReplaceItemValue("PWayStatus", sStatus)
+
+		' save doc pairs
+		sUnid = doc.UniversalID
+		Set aMemoList(sUnid) = doc
+		Set aStatusList(sUnid) = docStatus
+
+NextDoc:
+		Set doc = vw.GetNextDocument(doc)
+	Loop
+
+	' 11/13/2003
+	Forall reqDoc In aMemoList
+		Set doc = reqDoc
+		Set docStatus = aStatusList(Listtag(reqDoc))
+
+		' 5/8/2003
+		' increment counter if status doc has special status
+		sStatus = docStatus.GetItemValue("PWayStatus")(0)
+		If (sStatus = "WAIT-CLOSED") Then
+			sUnid = doc.GetItemValue("PWayUNID")(0)
+
+			' the PWayWaitClosed value is used to decrement the days-to-close value
+			If (docStatus.HasItem("PWayWaitClosed")) Then
+				nCount = docStatus.GetItemValue("PWayWaitClosed")(0) + 1
+			Else
+				nCount = 1
+			End If
+			Call docStatus.ReplaceItemValue("PWayWaitClosed", nCount)
+			Call docStatus.Save(True, True, True)
+		End If
+
+SkipCalc:
+		Call doc.ComputeWithForm(False, True)
+		nRC = doc.Save(False, False, False)
+		If Not (nRC) Then
+			Error ERR_SAVE_FAILURE, MSG_SAVE_FAILURE
+		End If
+
+	End Forall
+
+Agent_Exit:
+	Call errLog.Close
+
+	Exit Sub
+
+Agent_Error:
+	nErr = True
+	Call errLog.LogAction(Left$(doc.GetItemValue("Subject")(0), 20) & ":  " & Error & " (" & Err & "), line " & Erl)
+
+	If (Err = BAD_UNID) Then
+		Resume NextDoc
+	Else
+		Call LogError()
+		Resume Agent_Exit
+	End If
+
+End Sub

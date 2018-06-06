@@ -1,0 +1,3 @@
+Dim oooMsg As String
+Dim oooFlag As Boolean
+Dim debugLog As NotesLog

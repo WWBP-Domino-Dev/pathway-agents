@@ -1,0 +1,4 @@
+Option Public
+Option Declare
+Use "PathwayServer"
+Use "BluePages"

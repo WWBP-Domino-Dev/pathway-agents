@@ -1,0 +1,7 @@
+Dim docSend As NotesDocument
+Dim docStatus As NotesDocument
+Dim sRR As String
+Dim nX As Integer
+Dim nCount As Integer
+Dim sDesc As String
+Dim sSig As String

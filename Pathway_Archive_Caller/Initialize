@@ -1,0 +1,16 @@
+Sub Initialize
+
+	%REM
+	Manually archive all mail and request documents more than <see library> days old.
+
+	All eligible documents will be copied to the archive.
+		The original copy of the doc will be flagged with a new PWarchived field.  This will
+		cause it to display in the 'Pathway Archived' view.  From there they can be deleted
+		once the archive process is verified to be correct.  (There's no reason to think
+		the archive will not do what it says, this is just a safety check)
+
+	%END REM
+
+	Call PathwayDatabaseArchive()
+
+End Sub

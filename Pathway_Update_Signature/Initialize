@@ -1,0 +1,20 @@
+Sub Initialize
+
+	Dim session As New NotesSession
+	Dim db As NotesDatabase
+	Dim doc As NotesDocument
+	Dim sig As String
+	Dim reply As Boolean
+	Const NL = {
+}
+	Const newSig = "Debbie Nurkin" & NL & "Program Manager, Partner Technical Education" & NL & "IBM Cloud, WW Channel Technical Professional" & NL & "dnurkin@us.ibm.com"
+
+	Set db = session.Currentdatabase
+	Set doc = db.GetProfileDocument("CalendarProfile")
+	sig = doc.GetItemValue("Signature")(0)
+
+	call doc.Replaceitemvalue("Signature_1", newSig)
+	reply = doc.Computewithform(False, False)
+	Call doc.Save(False, False, False)
+
+End Sub

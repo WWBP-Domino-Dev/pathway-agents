@@ -1,0 +1,29 @@
+Sub SendTheDoc(doc As NotesDocument)
+
+	Dim errLog As NotesLog
+
+	On Error Goto Sub_Error
+
+	Call doc.Send(False)
+
+Sub_Exit:
+	Exit Sub
+
+Sub_Error:
+
+	Set errLog = New NotesLog("PATHwayWebFollowupEnhanced agent")
+	Call errLog.OpenMailLog(ADMIN_SENDTO, "PATHWAY agent Survey errors")
+	Call errLog.LogAction("PATHwayWebFollowupEnhanced agent 1.0")
+	Call errLog.Logerror(Err, Error)
+	Call errLog.LogAction("SendTheDoc(): Mail failure sending followup to requestor with email address: '"  & doc.SendTo(0) & "': " & doc.Subject(0))
+	Call errLog.Close
+
+	Set errLog = New NotesLog("PATHwayWebFollowupEnhanced")
+	Call errLog.OpenMailLog("pathway@wwbpnotesa.dub.usoh.ibm.com", "PATHWAY agent Survey errors")
+	Call errLog.LogAction("PATHway Followup agent 1.0")
+	Call errLog.Logerror(Err, Error)
+	Call errLog.LogAction("SendTheDoc(): Mail failure sending followup to requestor with email address: '"  & doc.SendTo(0) & "': " & doc.Subject(0))
+	Call errLog.Close
+
+	Resume Sub_Exit
+End Sub

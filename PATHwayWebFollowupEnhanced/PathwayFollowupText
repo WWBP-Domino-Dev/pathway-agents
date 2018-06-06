@@ -1,0 +1,15 @@
+Sub PathwayFollowupText()
+
+	' Define text for the followup email to closed requests
+	FollowupText(0) = "According to the WebSphere PATHway resource database, the following engagement is now officially fulfilled or completed:   " & NL & NL
+	FollowupText(1) = ""
+	FollowupText(2) = NL & NL & "  The engagement parameters show that  "
+	FollowupText(3) = ""
+	FollowupText(4) = " should have completed work on this engagement.  If you believe that additional help is " & _
+	"still required for this engagement, please contact WebSphere PATHway or the resource manager "
+	FollowupText(5) = ""
+	FollowupText(6) = "to request additional resources." & NL & NL & NL
+	' FollowupText(7) = "Please help the WW WebSphere BP organization in maintaining and tracking accurate data about this engagement by following this link:" & NL & NL
+	' FollowupText(8) = "http://" & ProdHost & ProdPath & ProdFile & "/PWayFollowup?OpenForm"
+
+End Sub

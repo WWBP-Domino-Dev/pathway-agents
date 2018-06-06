@@ -1,0 +1,88 @@
+Sub Initialize
+%REM
+
+SUMMARY
+Look for new documents in the database.  Move to the Inbox if contains the web template field "PWayWebReq" or "PWayWebSurvey"
+
+If attachments are included they will be part of the document, not in a field.  Look for attachments and move them to
+a new RT field so they are visible in the status doc.
+
+HISTORY
+9/24/2009
+In order to migrate to a new server a temporary test will be in place to look for email templates that are sent after the transition.
+
+9/2/2009
+Copied from the PSN PATHway database.
+
+11/2/2009
+Added call to BluePages API to convert the internet address used in the web form to the Notes address.  This will be used as the
+SendTo value by the PathwayProcessTemplate routine when constructing the reply document.
+
+7/9/2012
+Updated BluePages code block to do a fuzzy search for the name if the email address was not matched.
+If the name returns no entries (unlikely) then use the requestor's name and entered email address.
+%END REM
+
+	Dim session As New NotesSession
+	Dim db As NotesDatabase
+	Dim dc As NotesDocumentCollection
+	Dim view As NotesView
+	Dim doc As NotesDocument
+	Dim docReply As NotesDocument
+	Dim docProfile As NotesDocument
+	Dim rt As NotesRichTextItem
+	Dim dt As NotesDateTime
+	Dim testDate As NotesDateTime
+	Dim nameConv As NotesName
+
+	Dim bpd As BluePages
+	Dim coll As BPResults
+	Dim locatorURL As String
+	Dim dbProfileDoc As NotesDocument
+	Dim dbProfileView As NotesView
+
+	Dim debugLog As NotesLog
+	Dim auditLog As NotesLog
+	Dim newSubject As String
+	Dim temp As String
+	Dim tempDir As String
+	Dim logRequest As String
+
+	Dim iDate As Double
+
+	Dim af As Variant
+	Dim obj As Variant
+	Dim bRequest As Boolean
+	Dim bFollowup As Boolean
+	Dim bBluePages As Boolean
+
+	Const newLine = {
+}
+
+	' Const WebURL = "http://pghnotes6a.pgh.ibm.com/Dept/WCC/pathway.nsf/PWayReqTemplate?OpenForm"
+
+	On Error Goto Agent_Error
+
+	Set db = session.CurrentDatabase
+
+	' retrieve set of unprocessed docs
+	Set dc = db.UnprocessedDocuments
+	If dc.Count > 0 Then
+		Set doc = dc.GetFirstDocument
+
+		Set docReply = db.CreateDocument
+		Call docReply.AppendItemValue("Form", "Memo")
+		Call BuildMimeBody(doc, docReply)
+		Call SendTheDoc(docReply)
+	End If
+
+Agent_Exit:
+	Exit Sub
+
+Agent_Error:
+	If (Not debugLog Is Nothing) Then
+		Call debugLog.LogAction(Error & " (" & Err & "), line " & Erl)
+	End If
+	Resume Agent_Exit
+
+End Sub

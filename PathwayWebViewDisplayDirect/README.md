@@ -21,4 +21,42 @@ Set doc = session.Documentcontext
 qs = StrRight(doc.Query_String(0), "&")
 ```
 
-The first two parameters are fixed so they are removed from the query string and loaded in variables.  The query parameters array is then collapsed so only the customer paramters remain.
+The first two parameters are fixed so they are removed from the query string and loaded in variables.  The query parameters array is then collapsed so only the custom parameters remain.
+
+## Step 2
+
+Look for the PATHway cookie.
+
+```
+cookiePathway = getCookieVal(doc.HTTP_COOKIE(0), "PATHwayUser")
+cookiePathwayAddr = StrLeft(cookiePathway, "|")
+cookiePathwayName = StrRight(cookiePathway, "|")
+```
+
+Extract the db's ACL.
+
+```
+Set acl = db.Acl
+Set acle = acl.Getfirstentry()
+```
+
+Now test access.  Users who are ACL Managers don't need a cookie.  Anyone else without a matching cookie will be rejected.  
+There is an occasional problem where the HTTP_COOKIE value isn't presented to the agent, even though the user successfully authenticated.  Closing and reopening the browser, or switching the browser, will usually resolve this issue.
+
+## Step 3
+
+Once the user is validated the requested report is generated.  In the code, 'qs' is the rebuilt query string.
+
+```
+Select Case reportName
+
+  Case "CustomReport"
+    Call CustomReport(qs, "notes")    
+  Case "RequestorReport"
+    qs = "PWayTAM=" & cookiePathwayName
+    Call CustomReport(qs, "web")
+  Case "StatusReport"
+    qs = qs & "&PWayTAM=" & cookiePathwayName
+    Call StatusDisplay(cookiePathwayName, qs, mgrAccess)
+End Select
+```

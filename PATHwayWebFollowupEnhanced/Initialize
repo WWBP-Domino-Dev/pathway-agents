@@ -53,6 +53,7 @@ Code Summary;
 	' extract global database signature text
 	Set docProfile = db.GetProfileDocument("CalendarProfile")
 	sSig = docProfile.GetFirstItem("Signature").Text
+	debugAdmin = docProfile.Getfirstitem("Admin").Text
 
 	' get collection of relevant status documents
 	Set vw = db.GetView("Pathway Followup Search")
@@ -159,7 +160,7 @@ Agent_Exit:
 
 Agent_Error:
 	Set errLog = New NotesLog("PATHwayFollowup agent")
-	Call errLog.OpenMailLog(ADMIN_SENDTO, "PATHWAY agent Survey errors for " & sRR)
+	Call errLog.OpenMailLog(debugAdmin, "PATHWAY agent Survey errors for " & sRR)
 	Call errLog.LogAction("Mail failure")
 	Call errLog.Logerror(Err, sRR & ": " & Error & " on line " & Erl)
 	Call errLog.Close

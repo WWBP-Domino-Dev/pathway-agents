@@ -1,24 +1,24 @@
 Sub Initialize
 
-	Const admin = "owenge@us.ibm.com"
-
 	On Error GoTo subErr
 
 	Set session = New NotesSession
 	Set ws = New NotesUIWorkspace
 	Set db = session.Currentdatabase
+	Dim admin As String
 
 	Set view = db.GetView(v_PROFILE)
 	If (view.EntryCount > 0) Then
 		Set docProfile = view.GetFirstDocument
+		admin = docProfile.Getfirstitem("Admin").Text
 	End If
 
 	debug = True
 
 	If debug Then
 		Set logger = New NotesLog("Pathway Request Authentication Process")
-		Call logger.Openmaillog(admin, "Log of Pathway Request validation")
-		Call logger.Logaction("PathwayEmailValidator agent 4.0")
+		Call logger.Openmaillog(admin, "Log of Pathway Authentication Test")
+		Call logger.Logaction("BluePages Tester 306 agent 4.0")
 	End If
 
 	' Initialize BluePages object

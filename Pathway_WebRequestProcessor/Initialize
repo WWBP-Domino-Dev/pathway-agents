@@ -50,6 +50,7 @@ If the name returns no entries (unlikely) then use the requestor's name and ente
 	Dim tempDir As String
 	Dim logRequest As String
 	Dim formName As String
+	Dim debugAdmin As String
 
 	Dim nCount As Double
 	Dim iDate As Double
@@ -66,8 +67,6 @@ If the name returns no entries (unlikely) then use the requestor's name and ente
 	Const newLine = {
 }
 
-	' Const WebURL = "http://pghnotes6a.pgh.ibm.com/Dept/WCC/pathway.nsf/PWayReqTemplate?OpenForm"
-
 	On Error Goto Agent_Error
 
 	Set db = session.CurrentDatabase
@@ -76,6 +75,7 @@ If the name returns no entries (unlikely) then use the requestor's name and ente
 	Set view = db.GetView(v_PROFILE)
 	If (view.EntryCount > 0) Then
 		Set docProfile = view.GetFirstDocument
+		debugAdmin = docProfile.Getfirstitem("Admin").Text
 		If (docProfile.Getfirstitem("WebReqProcessDebug").Text = "1") Then
 			debug = True
 		End If

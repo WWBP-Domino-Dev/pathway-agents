@@ -5,3 +5,4 @@ Dim nX As Integer
 Dim nCount As Integer
 Dim sDesc As String
 Dim sSig As String
+Dim debugAdmin As String

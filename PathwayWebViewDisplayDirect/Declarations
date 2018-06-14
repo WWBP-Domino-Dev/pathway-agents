@@ -1,4 +1,3 @@
 Dim logger As NotesLog
 Dim sendDebug As Boolean
 Dim loggerText As String
-Const debugAdmin = "owenge@us.ibm.com"

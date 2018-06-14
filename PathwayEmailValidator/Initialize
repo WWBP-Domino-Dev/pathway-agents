@@ -11,6 +11,7 @@ Sub Initialize
 	Set view = db.GetView(v_PROFILE)
 	If (view.EntryCount > 0) Then
 		Set docProfile = view.GetFirstDocument
+		administrator = docProfile.Getfirstitem("Admin").Text
 		If (docProfile.Getfirstitem("WebAuthDebug").Text = "1") Then
 			debug = True
 		End If

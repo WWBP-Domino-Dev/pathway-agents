@@ -7,8 +7,9 @@ Sub Initialize
 
 	Sample URL:
 
-	http://<server>/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=CustomReport&ReportUser=dbelkin@ca.ibm.com&PWayGEO=Latin%20America:North%20America
-	Query string = ReportName=StatusReport&ReportUser=Waldo Pepper&PWayID=24223
+	http://wwbpnotes.dub.usoh.ibm.com/Dept/WWBP/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=CustomReport&ReportUser=dbelkin@ca.ibm.com&PWayGEO=Latin%20America:North%20America
+	http://wwbpnotes.dub.usoh.ibm.com/Dept/WWBP/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=StatusReport&ReportUser=Waldo Pepper&PWayID=24223
+	http://wwbpnotes.dub.usoh.ibm.com/Dept/WWBP/pathway.nsf/PathwayWebViewDisplayDirect?OpenAgent&ReportName=RequestorReport&ReportUser=
 
 %END REM
 
@@ -17,6 +18,8 @@ Sub Initialize
 	Dim aclName As NotesName
 	Dim acl As NotesACL
 	Dim acle As NotesACLEntry
+	Dim view As NotesView
+	Dim docProfile As NotesDocument
 
 	Dim tokenArray As Variant
 	Dim tokenSplit As Variant
@@ -30,12 +33,20 @@ Sub Initialize
 	Dim htmlString As String
 	Dim reportName As String
 	Dim reportUser As String
+	Dim debugAdmin As String
 
 	Dim mgrAccess As Boolean
 
+	Const v_PROFILE = "Pathway Global Profile"
 
 	Set session = New NotesSession
 	Set db = session.Currentdatabase
+
+	Set view = db.GetView(v_PROFILE)
+	If (view.EntryCount > 0) Then
+		Set docProfile = view.GetFirstDocument
+		debugAdmin = docProfile.Getfirstitem("Admin").Text
+	End If
 
 	sendDebug = False
 	debugText = NL

@@ -184,11 +184,12 @@ Sub StatusDisplay (submitter As String, queryString As String, isManager As Bool
 	requestID = tokenPairs("PWayID")
 	requestUser = tokenPairs("PWayTAM")
 
-	' If the caller is a Manager of PATHway they can see any request, otherwise the selected request must be owned by the caller
+	' If the caller is a Manager of PATHway they can see any request, otherwise the selected request must either be owned by the user
+	' or the user must be the primary resource
 	If (isManager) Then
 		search = search & { & PWayID=@TextToNumber("} & requestID & {")}
 	Else
-		'
+		' 06/2018: updated search parameters to allow either the requestor or the primary resource
 		search = search & { & PWayID=@TextToNumber("} & requestID & {") & (PWayTAM="} & requestUser & {" | PWayResName="} & requestUser & {")}
 	End If
 	If sendDebug Then

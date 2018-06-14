@@ -26,7 +26,7 @@ Dim pw3 As Integer
 Dim addr1 As String
 Dim addr2 As String
 Dim addr3 As String
-
+Dim administrator As String
 
 Dim debug As Boolean
 Dim authOK As Boolean
@@ -38,6 +38,5 @@ Dim jClassWrapper As Javaclass
 Dim jWrapper As Javaobject
 Dim jError As JavaError
 
-Const administrator = "owenge@us.ibm.com"
 Const agentVersion = "4.1"
 Const v_PROFILE = "Pathway Global Profile"

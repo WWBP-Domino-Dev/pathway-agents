@@ -12,7 +12,7 @@ Sub_Exit:
 Sub_Error:
 
 	Set errLog = New NotesLog("PATHwayWebFollowupEnhanced agent")
-	Call errLog.OpenMailLog(ADMIN_SENDTO, "PATHWAY agent Survey errors")
+	Call errLog.OpenMailLog(debugAdmin, "PATHWAY agent Survey errors")
 	Call errLog.LogAction("PATHwayWebFollowupEnhanced agent 1.0")
 	Call errLog.Logerror(Err, Error)
 	Call errLog.LogAction("SendTheDoc(): Mail failure sending followup to requestor with email address: '"  & doc.SendTo(0) & "': " & doc.Subject(0))
